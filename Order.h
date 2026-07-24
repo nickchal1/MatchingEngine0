@@ -16,8 +16,8 @@ using Quantity = std::int64_t;
 struct Order
 {
     OrderId id;
-    Price price;
     Quantity quantity;
+    Price price;
     Side side;
 };
 
