@@ -1,6 +1,7 @@
 #include "OrderBook.h"
 
 #include <algorithm>
+#include <iostream>
 
 bool OrderBook::addOrder(Quantity quantity, Price price, Side side, OrderId& assignedId) {
     
@@ -66,5 +67,42 @@ bool OrderBook::cancelOrder(OrderId id) {
     }
     else {
         return false;
+    }
+}
+
+void OrderBook::printOrderBook() const {
+
+    std::cout<<"Bids"<<'\n';
+
+    auto mapIt = m_bids.rbegin();
+    while (mapIt != m_bids.rend()) {
+        //price
+        std::cout<<mapIt->first<<'\n';
+        auto& priceVector = mapIt->second;
+        for (OrderId currId : priceVector) {
+            //id
+            std::cout<<currId<<'\n';
+            auto orderIt = m_idToOrder.find(currId);
+            //quantity
+            std::cout<<orderIt->second.quantity<<'\n';
+        }
+        mapIt++;
+    }
+
+    std::cout<<"Asks"<<'\n';
+
+    auto askMapIt = m_asks.begin();
+    while (askMapIt != m_asks.end()) {
+        //price
+        std::cout<<askMapIt->first<<'\n';
+        auto& priceVector = askMapIt->second;
+        for (OrderId currId : priceVector) {
+            //id
+            std::cout<<currId<<'\n';
+            auto orderIt = m_idToOrder.find(currId);
+            //quantity
+            std::cout<<orderIt->second.quantity<<'\n';
+        }
+        askMapIt++;
     }
 }
