@@ -16,8 +16,6 @@ bool OrderBook::validateOrder(Quantity quantity, Price price, Side side) const {
 
 void OrderBook::matchOrder(Order& order) {
 
-
-    //here i need to guarantee that the second vec will not be empty!
     if (order.side == Side::Buy) {
         while (!m_asks.empty() && m_asks.begin()->first <= order.price) {
 
@@ -50,7 +48,34 @@ void OrderBook::matchOrder(Order& order) {
     }
     //Side Sell
     else {
+        while (!m_bids.empty() && m_bids.rbegin()->first >= order.price) {
 
+            auto& priceVector = m_bids.rbegin()->second;
+            //process time prio order
+            OrderId currId = priceVector[0];
+            Order& currOrder = m_idToOrder.at(currId);
+            
+            if (order.quantity < currOrder.quantity) {
+                currOrder.quantity -= order.quantity;
+                order.quantity = 0;
+                //fully filled
+                return;
+            }
+            else {
+                //delete curr order
+                order.quantity -= currOrder.quantity;
+                priceVector.erase(priceVector.begin());
+                //price level empty
+                if (priceVector.empty()) {
+                    m_bids.erase(currOrder.price);
+                }
+                m_idToOrder.erase(currId);
+                if (order.quantity == 0) {
+                    return;
+                }
+                continue;
+            }
+        }
     }
 }
 
