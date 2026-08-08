@@ -13,6 +13,8 @@ private:
     std::map<Price, std::vector<OrderId>> m_asks;
     std::unordered_map<OrderId, Order> m_idToOrder;
     OrderId m_nextId = 1;
+    bool validateOrder(Quantity quantity, Price price, Side side) const; 
+    void matchOrder(Order& order);
 public:
     bool cancelOrder(OrderId id);
     bool addOrder(Quantity quantity, Price price, Side side, OrderId& assignedId);

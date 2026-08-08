@@ -3,9 +3,7 @@
 #include <algorithm>
 #include <iostream>
 
-bool OrderBook::addOrder(Quantity quantity, Price price, Side side, OrderId& assignedId) {
-    
-    //checks
+bool OrderBook::validateOrder(Quantity quantity, Price price, Side side) const {
     if (quantity <= 0 || price <= 0) {
         return false;
     }
@@ -13,11 +11,73 @@ bool OrderBook::addOrder(Quantity quantity, Price price, Side side, OrderId& ass
     if (side != Side::Buy && side != Side::Sell) {
         return false;
     }
+    return true;
+}
 
+void OrderBook::matchOrder(Order& order) {
+
+
+    //here i need to guarantee that the second vec will not be empty!
+    if (order.side == Side::Buy) {
+        while (!m_asks.empty() && m_asks.begin()->first <= order.price) {
+
+            auto& priceVector = m_asks.begin()->second;
+            //process time prio order
+            OrderId currId = priceVector[0];
+            Order& currOrder = m_idToOrder.at(currId);
+            
+            if (order.quantity < currOrder.quantity) {
+                currOrder.quantity -= order.quantity;
+                order.quantity = 0;
+                //fully filled
+                return;
+            }
+            else {
+                //delete curr order
+                order.quantity -= currOrder.quantity;
+                priceVector.erase(priceVector.begin());
+                //price level empty
+                if (priceVector.empty()) {
+                    m_asks.erase(currOrder.price);
+                }
+                m_idToOrder.erase(currId);
+                if (order.quantity == 0) {
+                    return;
+                }
+                continue;
+            }
+        }
+    }
+    //Side Sell
+    else {
+
+    }
+}
+
+bool OrderBook::addOrder(Quantity quantity, Price price, Side side, OrderId& assignedId) {
+    
+    //checks
+    if (!validateOrder(quantity, price, side)) {
+        return false;
+    }
+
+    //create
     Order order = {m_nextId, quantity, price, side};
     assignedId = m_nextId;
 
-    //add to price map
+    //reverse map side (MAYBE REDUNDANT)
+    //auto& sideMap = side == Side::Sell ? m_bids : m_asks;
+
+    //match Buy order
+    matchOrder(order);
+
+    //full fill
+    if (order.quantity == 0) {
+        m_nextId++;
+        return true;
+    }
+
+    //add to price map (IF partial fill)
     if (side == Side::Buy) {
         m_bids[price].push_back(m_nextId);
     }
