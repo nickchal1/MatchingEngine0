@@ -88,8 +88,112 @@ TEST(OrderBookValidation, InvalidIdCancellation)
 {
     OrderBook book;
 
-    OrderId Id{};
-    ASSERT_TRUE(book.addOrder(10, 100, Side::Sell, Id));
+    OrderId id{};
+    ASSERT_TRUE(book.addOrder(10, 100, Side::Sell, id));
 
     ASSERT_FALSE(book.cancelOrder(2));
+}
+
+TEST(OrderBookMatching, BuyExactFill)
+{
+    OrderBook book;
+
+    OrderId id{};
+    ASSERT_TRUE(book.addOrder(10, 100, Side::Sell, id));
+
+    OrderId NewId{};
+    ASSERT_TRUE(book.addOrder(10, 101, Side::Buy, NewId));
+
+    ASSERT_FALSE(book.cancelOrder(id));
+    ASSERT_FALSE(book.cancelOrder(NewId));
+}
+
+TEST(OrderBookMatching, SellExactFill)
+{
+    OrderBook book;
+
+    OrderId id{};
+    ASSERT_TRUE(book.addOrder(10, 100, Side::Buy, id));
+
+    OrderId NewId{};
+    ASSERT_TRUE(book.addOrder(10, 100, Side::Sell, NewId));
+
+    ASSERT_FALSE(book.cancelOrder(id));
+    ASSERT_FALSE(book.cancelOrder(NewId));
+}
+
+TEST(OrderBookMatching, BuyPartialFill)
+{
+    OrderBook book;
+
+    OrderId id{};
+    ASSERT_TRUE(book.addOrder(10, 100, Side::Sell, id));
+
+    OrderId NewId{};
+    ASSERT_TRUE(book.addOrder(30, 101, Side::Buy, NewId));
+
+    ASSERT_FALSE(book.cancelOrder(id));
+
+    //check if correct quantity goes into book (20 remain)
+    OrderId restingSellId{};
+    ASSERT_TRUE(book.addOrder(20, 101, Side::Sell, restingSellId));
+    ASSERT_FALSE(book.cancelOrder(restingSellId));
+    ASSERT_FALSE(book.cancelOrder(NewId));
+}
+
+TEST(OrderBookMatching, SellPartialFill)
+{
+    OrderBook book;
+
+    OrderId id{};
+    ASSERT_TRUE(book.addOrder(10, 100, Side::Buy, id));
+
+    OrderId NewId{};
+    ASSERT_TRUE(book.addOrder(30, 99, Side::Sell, NewId));
+
+    ASSERT_FALSE(book.cancelOrder(id));
+
+    //check if correct quantity goes into book (20 remain)
+    OrderId restingBuyId{};
+    ASSERT_TRUE(book.addOrder(20, 99, Side::Buy, restingBuyId));
+    ASSERT_FALSE(book.cancelOrder(restingBuyId));
+    ASSERT_FALSE(book.cancelOrder(NewId));
+}
+
+TEST(OrderBookMatching, BuyPartiallyFillsRestingSell)
+{
+    OrderBook book;
+
+    OrderId id{};
+    ASSERT_TRUE(book.addOrder(50, 100, Side::Sell, id));
+
+    OrderId NewId{};
+    ASSERT_TRUE(book.addOrder(30, 101, Side::Buy, NewId));
+
+    ASSERT_FALSE(book.cancelOrder(NewId));
+
+    OrderId probeBuyId{};
+    ASSERT_TRUE(book.addOrder(20, 100, Side::Buy, probeBuyId));
+    
+    ASSERT_FALSE(book.cancelOrder(id));
+    ASSERT_FALSE(book.cancelOrder(probeBuyId));
+}
+
+TEST(OrderBookMatching, SellPartiallyFillsRestingBuy)
+{
+    OrderBook book;
+
+    OrderId id{};
+    ASSERT_TRUE(book.addOrder(50, 100, Side::Buy, id));
+
+    OrderId NewId{};
+    ASSERT_TRUE(book.addOrder(30, 99, Side::Sell, NewId));
+
+    ASSERT_FALSE(book.cancelOrder(NewId));
+
+    OrderId probeSellId{};
+    ASSERT_TRUE(book.addOrder(20, 100, Side::Sell, probeSellId));
+
+    ASSERT_FALSE(book.cancelOrder(id));
+    ASSERT_FALSE(book.cancelOrder(probeSellId));
 }
