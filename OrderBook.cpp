@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <iostream>
 
+
 bool OrderBook::validateOrder(Quantity quantity, Price price, Side side) const {
     if (quantity <= 0 || price <= 0) {
         return false;
@@ -14,7 +15,7 @@ bool OrderBook::validateOrder(Quantity quantity, Price price, Side side) const {
     return true;
 }
 
-void OrderBook::matchOrder(Order& order) {
+void OrderBook::matchOrder(Order& order, std::vector<Trade>& trades) {
 
     if (order.side == Side::Buy) {
         while (!m_asks.empty() && m_asks.begin()->first <= order.price) {
@@ -23,6 +24,14 @@ void OrderBook::matchOrder(Order& order) {
             //process time prio order
             OrderId currId = priceVector[0];
             Order& currOrder = m_idToOrder.at(currId);
+
+            Trade trade;
+            trade.makerId = currId;
+            trade.takerId = order.id;
+            trade.executionQuantity = std::min(order.quantity, currOrder.quantity);
+            trade.executionPrice = currOrder.price;
+            trade.takerSide = order.side;
+            trades.push_back(trade);
             
             if (order.quantity < currOrder.quantity) {
                 currOrder.quantity -= order.quantity;
@@ -79,40 +88,33 @@ void OrderBook::matchOrder(Order& order) {
     }
 }
 
-bool OrderBook::addOrder(Quantity quantity, Price price, Side side, OrderId& assignedId) {
+std::optional<SubmissionResult> OrderBook::addOrder(Quantity quantity, Price price, Side side) {
     
     //checks
     if (!validateOrder(quantity, price, side)) {
-        return false;
+        return std::nullopt;
     }
 
-    //create
+    //create order + subRes
     Order order = {m_nextId, quantity, price, side};
-    assignedId = m_nextId;
-
-    //reverse map side (MAYBE REDUNDANT)
-    //auto& sideMap = side == Side::Sell ? m_bids : m_asks;
+    //id and empty trades vec
+    SubmissionResult result = {m_nextId, {}};
 
     //match Buy order
-    matchOrder(order);
+    matchOrder(order, result.trades);
 
-    //full fill
-    if (order.quantity == 0) {
-        m_nextId++;
-        return true;
+    if (order.quantity != 0) {
+        //add to price map (IF partial fill)
+        if (side == Side::Buy) {
+            m_bids[price].push_back(m_nextId);
+        }
+        else {
+            m_asks[price].push_back(m_nextId);
+        }
+        m_idToOrder.insert({m_nextId, order});
     }
-
-    //add to price map (IF partial fill)
-    if (side == Side::Buy) {
-        m_bids[price].push_back(m_nextId);
-    }
-    else {
-        m_asks[price].push_back(m_nextId);
-    }
-
-    m_idToOrder.insert({m_nextId, order});
     m_nextId++;
-    return true;
+    return result;
 }
 
 bool OrderBook::cancelOrder(OrderId id) {

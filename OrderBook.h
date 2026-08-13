@@ -4,7 +4,10 @@
 #include <map>
 #include <unordered_map>
 #include <vector>
+#include <optional>
+#include "SubmissionResult.h"
 #include "Order.h"
+#include "Trade.h"
 
 class OrderBook
 {
@@ -14,10 +17,10 @@ private:
     std::unordered_map<OrderId, Order> m_idToOrder;
     OrderId m_nextId = 1;
     bool validateOrder(Quantity quantity, Price price, Side side) const; 
-    void matchOrder(Order& order);
+    void matchOrder(Order& order, std::vector<Trade>& trades);
 public:
     bool cancelOrder(OrderId id);
-    bool addOrder(Quantity quantity, Price price, Side side, OrderId& assignedId);
+    std::optional<SubmissionResult> addOrder(Quantity quantity, Price price, Side side);
     void printOrderBook() const;
 };
 
