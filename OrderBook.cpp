@@ -63,6 +63,14 @@ void OrderBook::matchOrder(Order& order, std::vector<Trade>& trades) {
             //process time prio order
             OrderId currId = priceVector[0];
             Order& currOrder = m_idToOrder.at(currId);
+
+            Trade trade;
+            trade.makerId = currId;
+            trade.takerId = order.id;
+            trade.executionQuantity = std::min(order.quantity, currOrder.quantity);
+            trade.executionPrice = currOrder.price;
+            trade.takerSide = order.side;
+            trades.push_back(trade);
             
             if (order.quantity < currOrder.quantity) {
                 currOrder.quantity -= order.quantity;
