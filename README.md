@@ -15,11 +15,33 @@ The base of the OrderBook is constructed using two containers:
 
 The Order is going to be a struct with ID, Price, Bid/Ask, Quantity
 
-The OrderBook owns the Orders and assigns IDs
+The OrderBook owns the Orders and assigns IDs:
+The interface is initially as follows:
 
-The Bid/Ask is made through an enum 
+    1) addOrder
+    2) cancelOrder
+    3) printOrderBook
 
-The price is going to be INT type to avoid float point comparisons
+
+The Bid/Ask is made through an scoped enum 
+
+The Order member vars is going to be 32 and 64 bit unsigned and signed int type to avoid float point comparisons. 
+    ID: uint64 //no arithmetic so unsinged is not dangerous here
+    Price: int32 //max value could be 50mil << 2bil INT_MAX
+    Quantity: int64 //can get really large with cheap stocks
+
+    Padding optimization:
+
+        
+
+Type alliases are used for the Order components for readability
+Order is a struct since all its variables are deafult public and no significant API is needed
+
+
+Decisions / Tradeoffs
+
+    1) I am debating on whether to have default init member vars for the Order struct, though my concern is that the values will be meaningless, so I am going to explicitly be assigning EVERY parameter to make sure nothing stays unitialized / initialized to garbage
+
 
 
 Expected Behavior of v0:
