@@ -40,6 +40,15 @@ target_link_libraries(matching_engine PRIVATE
     project_warnings
 )
 
+add_executable(latency_benchmark
+    benchmarks/OrderBookBenchmark.cpp
+)
+
+target_link_libraries(latency_benchmark PRIVATE
+    orderbook
+    project_warnings
+)
+
 # Testing support.
 include(CTest)
 
