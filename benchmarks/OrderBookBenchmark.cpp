@@ -194,8 +194,8 @@ std::vector<long long> mixedOperations(size_t sampleCount, size_t depth) {
             case 0: {
                 start = std::chrono::steady_clock::now();
                 std::optional<SubmissionResult> res = book.addOrder(100, 10'000, Side::Buy);
-                validIds.push_back(res->orderId);
                 finish = std::chrono::steady_clock::now();
+                validIds.push_back(res->orderId);
                 break;
             }
             case 1: {
