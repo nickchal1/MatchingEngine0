@@ -201,3 +201,28 @@ void OrderBook::printOrderBook() const {
         askMapIt++;
     }
 }
+
+std::optional<Price> OrderBook::bestBid() const {
+
+    if (m_bids.empty()) {
+        return std::nullopt;
+    }
+    return m_bids.rbegin()->first;
+}
+
+std::optional<Price> OrderBook::bestAsk() const {
+
+    if (m_asks.empty()) {
+        return std::nullopt;
+    }
+    return m_asks.begin()->first;
+}
+
+std::optional<Order> OrderBook::findOrder(OrderId id) const {
+    auto orderIt = m_idToOrder.find(id);
+
+    if(orderIt == m_idToOrder.end()) {
+        return std::nullopt;
+    }
+    return orderIt->second;
+}

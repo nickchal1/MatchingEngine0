@@ -22,6 +22,9 @@ public:
     bool cancelOrder(OrderId id);
     std::optional<SubmissionResult> addOrder(Quantity quantity, Price price, Side side);
     void printOrderBook() const;
+    std::optional<Price> bestBid() const;
+    std::optional<Price> bestAsk() const;
+    std::optional<Order> findOrder(OrderId id) const;
 };
 
 #endif
