@@ -7,13 +7,18 @@
 #include <algorithm>
 #include <optional>
 #include <cstdlib>
+#include <random>
 
-long long nearestRankPercentile(const std::vector<long long>& clockSamples, double percentile) {
+long long nearestRankPercentile(const std::vector<long long>& samples, double percentile) {
 
-    long long rank = std::ceil(percentile * clockSamples.size());
+    long long rank = std::ceil(percentile * samples.size());
     
-    return clockSamples[rank - 1];
+    return samples[rank - 1];
 }
+
+// void percentilePrint() {
+//     return;
+// }
 
 std::vector<long long> clockBase(size_t sampleCount) {
     std::vector<long long> samples;
@@ -146,6 +151,65 @@ std::vector<long long> cancelRandom(size_t sampleCount, size_t depth) {
         std::swap(validIds[randomIndex], validIds[validIds.size() - 1]);
         validIds.pop_back();
         validIds.push_back(res->orderId);
+    }
+    return samples;
+}
+
+std::vector<long long> mixedOrders(size_t sampleCount, size_t depth) {
+    OrderBook book;
+    std::vector<long long> samples;
+    samples.reserve(sampleCount);
+    std::vector<OrderId> validIds;
+
+    for (std::size_t i = 0; i < depth; ++i) {
+        std::optional<SubmissionResult> res = book.addOrder(100, 10'000, Side::Buy);
+        validIds.push_back(res->orderId);
+    }
+    //50% add, 45% cancel, 5% match
+    std::mt19937 generator{2029};
+    std::discrete_distribution<int> opDist{50, 45, 5};
+    srand(2029);
+
+    for (size_t i = 0; i < sampleCount; ++i) {
+        int op = opDist(generator);
+
+        //force add
+        if (op != 0 && validIds.empty()) {
+            op = 0;
+        }
+        std::chrono::steady_clock::time_point start;
+        std::chrono::steady_clock::time_point finish;
+        switch (op) {
+            case 0: {
+                start = std::chrono::steady_clock::now();
+                std::optional<SubmissionResult> res = book.addOrder(100, 10'000, Side::Buy);
+                validIds.push_back(res->orderId);
+                finish = std::chrono::steady_clock::now();
+                break;
+            }
+            case 1: {
+                size_t randomIndex = rand() % validIds.size();
+                start = std::chrono::steady_clock::now();
+                book.cancelOrder(validIds[randomIndex]);
+                finish = std::chrono::steady_clock::now();
+                std::swap(validIds[randomIndex], validIds[validIds.size() - 1]);
+                validIds.pop_back();
+                break;
+            }
+            case 2: {
+                start = std::chrono::steady_clock::now();
+                std::optional<SubmissionResult> res = book.addOrder(100, 10'000, Side::Sell);
+                finish = std::chrono::steady_clock::now();
+                OrderId invalidId = res->trades[0].makerId;
+                auto pos = std::find(validIds.begin(), validIds.end(), invalidId);
+                std::swap(*pos, validIds[validIds.size() - 1]);
+                validIds.pop_back();
+                break;
+            }
+        }
+        const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start);
+        const auto ns = elapsed.count();
+        samples.push_back(ns);
     }
     return samples;
 }
