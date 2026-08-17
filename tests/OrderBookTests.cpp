@@ -35,6 +35,13 @@ TEST(OrderBookValidation, NegativeQuantityIsRejected)
     EXPECT_FALSE(result);
 }
 
+TEST(OrderBookValidation, ZeroQuantityIsRejected)
+{
+    OrderBook book;
+    const auto result = book.addOrder(0, 100, Side::Buy);
+    EXPECT_FALSE(result);
+}
+
 TEST(OrderBookValidation, InvalidSideIsRejected)
 {
     OrderBook book;
@@ -64,10 +71,10 @@ TEST(OrderBookValidation, MonotonicIdGenerationFilled)
 {
     OrderBook book;
     size_t counter = 0;
-    for (counter; counter < 10; ++counter) {
+    for (; counter < 10; ++counter) {
         const auto result = book.addOrder(10, 100, Side::Buy);
     }
-    for (counter; counter < 20; ++counter) {
+    for (; counter < 20; ++counter) {
         const auto result = book.addOrder(10, 100, Side::Sell);
         ASSERT_TRUE(result);
         ASSERT_EQ(result->orderId, counter + 1);
@@ -196,4 +203,117 @@ TEST(OrderBookMatching, BuyExactFill)
     EXPECT_EQ(resultSell->orderId, resultBuy->trades[0].makerId);
     EXPECT_EQ(resultBuy->trades[0].executionQuantity, 20);
 }
+
+TEST(OrderBookMatching, BuyBelowBestAsk)
+{
+    OrderBook book;
+    const auto resultSell = book.addOrder(20, 110, Side::Sell);
+    const auto resultBuy = book.addOrder(20, 100, Side::Buy);
+
+    EXPECT_EQ(resultBuy->trades.size(), 0);
+    EXPECT_EQ(book.bestBid(), 100);
+    EXPECT_EQ(book.bestAsk(), 110);
+    ASSERT_TRUE(book.findOrder(resultSell->orderId));
+    ASSERT_TRUE(book.findOrder(resultBuy->orderId));
+}
+
+TEST(OrderBookMatching, SellAboveBestBid)
+{
+    OrderBook book;
+    const auto resultBuy = book.addOrder(20, 100, Side::Buy);
+    const auto resultSell = book.addOrder(20, 110, Side::Sell);
+
+    EXPECT_EQ(resultSell->trades.size(), 0);
+    EXPECT_EQ(book.bestBid(), 100);
+    EXPECT_EQ(book.bestAsk(), 110);
+    ASSERT_TRUE(book.findOrder(resultSell->orderId));
+    ASSERT_TRUE(book.findOrder(resultBuy->orderId));
+}
+
+TEST(OrderBookMatching, LargerSellPartiallyFills)
+{
+    OrderBook book;
+    const auto resultBuy = book.addOrder(20, 110, Side::Buy);
+    const auto resultSell = book.addOrder(50, 110, Side::Sell);
+
+    EXPECT_EQ(resultSell->trades.size(), 1);
+    EXPECT_EQ(resultSell->trades[0].executionQuantity, 20);
+    ASSERT_FALSE(book.findOrder(resultBuy->orderId));
+
+    const auto restingSell = book.findOrder(resultSell->orderId);
+    ASSERT_TRUE(restingSell);
+    EXPECT_EQ(restingSell->quantity, 30);
+}
+
+TEST(OrderBookMatching, LargeBuyPartiallyFills)
+{
+    OrderBook book;
+    const auto resultSell = book.addOrder(20, 110, Side::Sell);
+    const auto resultBuy = book.addOrder(50, 110, Side::Buy);
+
+    EXPECT_EQ(resultBuy->trades.size(), 1);
+    EXPECT_EQ(resultBuy->trades[0].executionQuantity, 20);
+    ASSERT_FALSE(book.findOrder(resultSell->orderId));
+
+    const auto restingBuy = book.findOrder(resultBuy->orderId);
+    ASSERT_TRUE(restingBuy);
+    EXPECT_EQ(restingBuy->quantity, 30);
+}
+
+TEST(OrderBookMatching, SmallerSellFullyFillsRestingBuyReduces)
+{
+    OrderBook book;
+    const auto resultBuy = book.addOrder(60, 110, Side::Buy);
+    const auto resultSell = book.addOrder(50, 110, Side::Sell);
+
+    EXPECT_EQ(resultSell->trades.size(), 1);
+    EXPECT_EQ(resultSell->trades[0].executionQuantity, 50);
+    ASSERT_FALSE(book.findOrder(resultSell->orderId));
+
+    const auto restingBuy = book.findOrder(resultBuy->orderId);
+    ASSERT_TRUE(restingBuy);
+    EXPECT_EQ(restingBuy->quantity, 10);
+}
+
+TEST(OrderBookMatching, SmallerBuyFullyFillsRestingSellReduces)
+{
+    OrderBook book;
+    const auto resultSell = book.addOrder(60, 110, Side::Sell);
+    const auto resultBuy = book.addOrder(50, 110, Side::Buy);
+
+    EXPECT_EQ(resultBuy->trades.size(), 1);
+    EXPECT_EQ(resultBuy->trades[0].executionQuantity, 50);
+    ASSERT_FALSE(book.findOrder(resultBuy->orderId));
+
+    const auto restingSell = book.findOrder(resultSell->orderId);
+    ASSERT_TRUE(restingSell);
+    EXPECT_EQ(restingSell->quantity, 10);
+}
+
+TEST(OrderBookMatching, BuyFillsCheaperAskAtMakersPrice) 
+{
+    OrderBook book;
+    const auto resultSell = book.addOrder(60, 100, Side::Sell);
+    const auto resultBuy = book.addOrder(60, 200, Side::Buy);
+
+    EXPECT_EQ(resultBuy->trades.size(), 1);
+    EXPECT_EQ(resultBuy->trades[0].executionQuantity, 60);
+    EXPECT_EQ(resultBuy->trades[0].executionPrice, 100);
+    ASSERT_FALSE(book.findOrder(resultBuy->orderId));
+    ASSERT_FALSE(book.findOrder(resultSell->orderId));
+}
+
+TEST(OrderBookMatching, SellFillsHigherBidAtMakersPrice) 
+{
+    OrderBook book;
+    const auto resultBuy = book.addOrder(60, 200, Side::Buy);
+    const auto resultSell = book.addOrder(60, 100, Side::Sell);
+
+    EXPECT_EQ(resultSell->trades.size(), 1);
+    EXPECT_EQ(resultSell->trades[0].executionQuantity, 60);
+    EXPECT_EQ(resultSell->trades[0].executionPrice, 200);
+    ASSERT_FALSE(book.findOrder(resultBuy->orderId));
+    ASSERT_FALSE(book.findOrder(resultSell->orderId));
+}
+
 
