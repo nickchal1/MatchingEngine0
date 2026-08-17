@@ -17,183 +17,339 @@ TEST(OrderBookValidation, InvalidOrderDoesNotConsumeId)
 TEST(OrderBookValidation, NegativePriceIsRejected)
 {
     OrderBook book;
-
-    OrderId Id{};
-    EXPECT_FALSE(book.addOrder(10, -100, Side::Buy, Id));
+    const auto result = book.addOrder(10, -100, Side::Buy);
+    EXPECT_FALSE(result);
 }
 
 TEST(OrderBookValidation, ZeroPriceIsRejected)
 {
     OrderBook book;
-
-    OrderId Id{};
-    EXPECT_FALSE(book.addOrder(10, 0, Side::Buy, Id));
+    const auto result = book.addOrder(10, 0, Side::Buy);
+    EXPECT_FALSE(result);
 }
 
 TEST(OrderBookValidation, NegativeQuantityIsRejected)
 {
     OrderBook book;
+    const auto result = book.addOrder(-10, 100, Side::Buy);
+    EXPECT_FALSE(result);
+}
 
-    OrderId Id{};
-    EXPECT_FALSE(book.addOrder(-10, 100, Side::Buy, Id));
+TEST(OrderBookValidation, ZeroQuantityIsRejected)
+{
+    OrderBook book;
+    const auto result = book.addOrder(0, 100, Side::Buy);
+    EXPECT_FALSE(result);
+}
+
+TEST(OrderBookValidation, InvalidSideIsRejected)
+{
+    OrderBook book;
+    const Side invalidSide = static_cast<Side>(2);
+    const auto result = book.addOrder(10, 100, invalidSide);
+    EXPECT_FALSE(result);
+}
+
+TEST(OrderBookValidation, MinValidPriceQuantityValues)
+{
+    OrderBook book;
+    const auto result = book.addOrder(1, 1, Side::Buy);
+    EXPECT_TRUE(result);
+}
+
+TEST(OrderBookValidation, MonotonicIdGenerationResting)
+{
+    OrderBook book;
+    for (size_t i = 0; i < 10; ++i) {
+        const auto result = book.addOrder(10, 100, Side::Buy);
+        ASSERT_TRUE(result);
+        ASSERT_EQ(result->orderId, i + 1);
+    }
+}
+
+TEST(OrderBookValidation, MonotonicIdGenerationFilled)
+{
+    OrderBook book;
+    size_t counter = 0;
+    for (; counter < 10; ++counter) {
+        const auto result = book.addOrder(10, 100, Side::Buy);
+    }
+    for (; counter < 20; ++counter) {
+        const auto result = book.addOrder(10, 100, Side::Sell);
+        ASSERT_TRUE(result);
+        ASSERT_EQ(result->orderId, counter + 1);
+    }
+}
+
+TEST(OrderBookValidation, EmptyBookBestBidAskFound) 
+{
+    OrderBook book;
+    EXPECT_FALSE(book.findOrder(1));
+    EXPECT_FALSE(book.bestAsk());
+    EXPECT_FALSE(book.bestBid());
 }
 
 TEST(OrderBookValidation, AddValidBuyRestingOrder)
 {
     OrderBook book;
-
-    OrderId Id{};
-    ASSERT_TRUE(book.addOrder(10, 100, Side::Buy, Id));
-
-    EXPECT_EQ(Id, 1);
-
-    ASSERT_TRUE(book.cancelOrder(1));
+    const auto result = book.addOrder(10, 100, Side::Buy);
+    ASSERT_TRUE(result);
+    EXPECT_EQ(result->orderId, 1);
+    EXPECT_EQ(result->trades.size(), 0);
+    EXPECT_TRUE(book.findOrder(result->orderId));
+    EXPECT_EQ(book.bestBid(), 100);
 }
 
 TEST(OrderBookValidation, AddValidSellRestingOrder)
 {
     OrderBook book;
-
-    OrderId Id{};
-    ASSERT_TRUE(book.addOrder(10, 100, Side::Sell, Id));
-
-    EXPECT_EQ(Id, 1);
-
-    ASSERT_TRUE(book.cancelOrder(1));
+    const auto result = book.addOrder(10, 100, Side::Sell);
+    ASSERT_TRUE(result);
+    EXPECT_EQ(result->orderId, 1);
+    EXPECT_EQ(result->trades.size(), 0);
+    EXPECT_TRUE(book.findOrder(result->orderId));
+    EXPECT_EQ(book.bestAsk(), 100);
 }
 
-TEST(OrderBookValidation, RestingOrderCanBeCancelled)
+TEST(OrderBookValidation, MultipleBidAskPriceLevelsAndNoCross)
 {
     OrderBook book;
-
-    OrderId Id{};
-    ASSERT_TRUE(book.addOrder(10, 100, Side::Sell, Id));
-
-    ASSERT_TRUE(book.cancelOrder(1));
-}
-
-TEST(OrderBookValidation, SameIdCancellation)
-{
-    OrderBook book;
-
-    OrderId Id{};
-    ASSERT_TRUE(book.addOrder(10, 100, Side::Sell, Id));
-
-    ASSERT_TRUE(book.cancelOrder(1));
-
-    ASSERT_FALSE(book.cancelOrder(1));
+    for (size_t i = 0; i < 10; ++i) {
+        book.addOrder(10, 100 + i, Side::Buy);
+        book.addOrder(10, 110 + i, Side::Sell);
+    }
+    EXPECT_EQ(book.bestBid(), 109);
+    EXPECT_EQ(book.bestAsk(), 110);
 }
 
 TEST(OrderBookValidation, InvalidIdCancellation)
 {
     OrderBook book;
-
-    OrderId id{};
-    ASSERT_TRUE(book.addOrder(10, 100, Side::Sell, id));
-
+    ASSERT_TRUE(book.addOrder(10, 100, Side::Sell));
     ASSERT_FALSE(book.cancelOrder(2));
+}
+
+TEST(OrderBookValidation, RestingBuyOrderCanBeCancelled)
+{
+    OrderBook book;
+    const auto result = book.addOrder(10, 100, Side::Buy);
+    ASSERT_TRUE(result);
+    ASSERT_TRUE(book.cancelOrder(result->orderId));
+}
+
+TEST(OrderBookValidation, RestingSellOrderCanBeCancelled)
+{
+    OrderBook book;
+    const auto result = book.addOrder(10, 100, Side::Sell);
+    ASSERT_TRUE(result);
+    ASSERT_TRUE(book.cancelOrder(result->orderId));
+}
+
+TEST(OrderBookValidation, SameIdCancellation)
+{
+    OrderBook book;
+    const auto result = book.addOrder(10, 100, Side::Sell);
+    ASSERT_TRUE(result);
+    ASSERT_TRUE(book.cancelOrder(result->orderId));
+    ASSERT_FALSE(book.cancelOrder(result->orderId));
+}
+
+TEST(OrderBookValidation, FIFOPreservedAfterCancellation)
+{
+    OrderBook book;
+    const auto result1 = book.addOrder(30, 100, Side::Sell);
+    const auto result2 = book.addOrder(20, 100, Side::Sell);
+    const auto result3 = book.addOrder(10, 100, Side::Sell);
+
+    ASSERT_TRUE(book.cancelOrder(result2->orderId));
+    ASSERT_FALSE(book.findOrder(result2->orderId));
+    ASSERT_TRUE(book.findOrder(result1->orderId));
+    ASSERT_TRUE(book.findOrder(result3->orderId));
+    EXPECT_EQ(book.bestAsk(), 100);
+
+    const auto match1 = book.addOrder(30, 100, Side::Buy);
+    EXPECT_EQ(match1->trades[0].makerId, result1->orderId);
+}
+
+TEST(OrderBookValidation, CancelOnlyOrderAtPriceUpdatesBestBid)
+{
+    OrderBook book;
+    const auto result1 = book.addOrder(30, 110, Side::Buy);
+    const auto result2 = book.addOrder(20, 100, Side::Buy);
+
+    ASSERT_TRUE(book.cancelOrder(result1->orderId));
+    EXPECT_EQ(book.bestBid(), 100);
+}
+
+
+TEST(OrderBookMatching, SellExactFill)
+{
+    OrderBook book;
+    const auto resultBuy = book.addOrder(20, 110, Side::Buy);
+    const auto resultSell = book.addOrder(20, 110, Side::Sell);
+
+    EXPECT_EQ(resultSell->trades.size(), 1);
+    EXPECT_EQ(resultBuy->orderId, resultSell->trades[0].makerId);
+    EXPECT_EQ(resultSell->trades[0].executionQuantity, 20);
 }
 
 TEST(OrderBookMatching, BuyExactFill)
 {
     OrderBook book;
+    const auto resultSell = book.addOrder(20, 110, Side::Sell);
+    const auto resultBuy = book.addOrder(20, 110, Side::Buy);
 
-    OrderId id{};
-    ASSERT_TRUE(book.addOrder(10, 100, Side::Sell, id));
-
-    OrderId NewId{};
-    ASSERT_TRUE(book.addOrder(10, 101, Side::Buy, NewId));
-
-    ASSERT_FALSE(book.cancelOrder(id));
-    ASSERT_FALSE(book.cancelOrder(NewId));
+    EXPECT_EQ(resultBuy->trades.size(), 1);
+    EXPECT_EQ(resultSell->orderId, resultBuy->trades[0].makerId);
+    EXPECT_EQ(resultBuy->trades[0].executionQuantity, 20);
 }
 
-TEST(OrderBookMatching, SellExactFill)
+TEST(OrderBookMatching, BuyBelowBestAsk)
 {
     OrderBook book;
+    const auto resultSell = book.addOrder(20, 110, Side::Sell);
+    const auto resultBuy = book.addOrder(20, 100, Side::Buy);
 
-    OrderId id{};
-    ASSERT_TRUE(book.addOrder(10, 100, Side::Buy, id));
-
-    OrderId NewId{};
-    ASSERT_TRUE(book.addOrder(10, 100, Side::Sell, NewId));
-
-    ASSERT_FALSE(book.cancelOrder(id));
-    ASSERT_FALSE(book.cancelOrder(NewId));
+    EXPECT_EQ(resultBuy->trades.size(), 0);
+    EXPECT_EQ(book.bestBid(), 100);
+    EXPECT_EQ(book.bestAsk(), 110);
+    ASSERT_TRUE(book.findOrder(resultSell->orderId));
+    ASSERT_TRUE(book.findOrder(resultBuy->orderId));
 }
 
-TEST(OrderBookMatching, BuyPartialFill)
+TEST(OrderBookMatching, SellAboveBestBid)
 {
     OrderBook book;
+    const auto resultBuy = book.addOrder(20, 100, Side::Buy);
+    const auto resultSell = book.addOrder(20, 110, Side::Sell);
 
-    OrderId id{};
-    ASSERT_TRUE(book.addOrder(10, 100, Side::Sell, id));
-
-    OrderId NewId{};
-    ASSERT_TRUE(book.addOrder(30, 101, Side::Buy, NewId));
-
-    ASSERT_FALSE(book.cancelOrder(id));
-
-    //check if correct quantity goes into book (20 remain)
-    OrderId restingSellId{};
-    ASSERT_TRUE(book.addOrder(20, 101, Side::Sell, restingSellId));
-    ASSERT_FALSE(book.cancelOrder(restingSellId));
-    ASSERT_FALSE(book.cancelOrder(NewId));
+    EXPECT_EQ(resultSell->trades.size(), 0);
+    EXPECT_EQ(book.bestBid(), 100);
+    EXPECT_EQ(book.bestAsk(), 110);
+    ASSERT_TRUE(book.findOrder(resultSell->orderId));
+    ASSERT_TRUE(book.findOrder(resultBuy->orderId));
 }
 
-TEST(OrderBookMatching, SellPartialFill)
+TEST(OrderBookMatching, LargerSellPartiallyFills)
 {
     OrderBook book;
+    const auto resultBuy = book.addOrder(20, 110, Side::Buy);
+    const auto resultSell = book.addOrder(50, 110, Side::Sell);
 
-    OrderId id{};
-    ASSERT_TRUE(book.addOrder(10, 100, Side::Buy, id));
+    EXPECT_EQ(resultSell->trades.size(), 1);
+    EXPECT_EQ(resultSell->trades[0].executionQuantity, 20);
+    ASSERT_FALSE(book.findOrder(resultBuy->orderId));
 
-    OrderId NewId{};
-    ASSERT_TRUE(book.addOrder(30, 99, Side::Sell, NewId));
-
-    ASSERT_FALSE(book.cancelOrder(id));
-
-    //check if correct quantity goes into book (20 remain)
-    OrderId restingBuyId{};
-    ASSERT_TRUE(book.addOrder(20, 99, Side::Buy, restingBuyId));
-    ASSERT_FALSE(book.cancelOrder(restingBuyId));
-    ASSERT_FALSE(book.cancelOrder(NewId));
+    const auto restingSell = book.findOrder(resultSell->orderId);
+    ASSERT_TRUE(restingSell);
+    EXPECT_EQ(restingSell->quantity, 30);
 }
 
-TEST(OrderBookMatching, BuyPartiallyFillsRestingSell)
+TEST(OrderBookMatching, LargeBuyPartiallyFills)
 {
     OrderBook book;
+    const auto resultSell = book.addOrder(20, 110, Side::Sell);
+    const auto resultBuy = book.addOrder(50, 110, Side::Buy);
 
-    OrderId id{};
-    ASSERT_TRUE(book.addOrder(50, 100, Side::Sell, id));
+    EXPECT_EQ(resultBuy->trades.size(), 1);
+    EXPECT_EQ(resultBuy->trades[0].executionQuantity, 20);
+    ASSERT_FALSE(book.findOrder(resultSell->orderId));
 
-    OrderId NewId{};
-    ASSERT_TRUE(book.addOrder(30, 101, Side::Buy, NewId));
-
-    ASSERT_FALSE(book.cancelOrder(NewId));
-
-    OrderId probeBuyId{};
-    ASSERT_TRUE(book.addOrder(20, 100, Side::Buy, probeBuyId));
-    
-    ASSERT_FALSE(book.cancelOrder(id));
-    ASSERT_FALSE(book.cancelOrder(probeBuyId));
+    const auto restingBuy = book.findOrder(resultBuy->orderId);
+    ASSERT_TRUE(restingBuy);
+    EXPECT_EQ(restingBuy->quantity, 30);
 }
 
-TEST(OrderBookMatching, SellPartiallyFillsRestingBuy)
+TEST(OrderBookMatching, SmallerSellFullyFillsRestingBuyReduces)
 {
     OrderBook book;
+    const auto resultBuy = book.addOrder(60, 110, Side::Buy);
+    const auto resultSell = book.addOrder(50, 110, Side::Sell);
 
-    OrderId id{};
-    ASSERT_TRUE(book.addOrder(50, 100, Side::Buy, id));
+    EXPECT_EQ(resultSell->trades.size(), 1);
+    EXPECT_EQ(resultSell->trades[0].executionQuantity, 50);
+    ASSERT_FALSE(book.findOrder(resultSell->orderId));
 
-    OrderId NewId{};
-    ASSERT_TRUE(book.addOrder(30, 99, Side::Sell, NewId));
-
-    ASSERT_FALSE(book.cancelOrder(NewId));
-
-    OrderId probeSellId{};
-    ASSERT_TRUE(book.addOrder(20, 100, Side::Sell, probeSellId));
-
-    ASSERT_FALSE(book.cancelOrder(id));
-    ASSERT_FALSE(book.cancelOrder(probeSellId));
+    const auto restingBuy = book.findOrder(resultBuy->orderId);
+    ASSERT_TRUE(restingBuy);
+    EXPECT_EQ(restingBuy->quantity, 10);
 }
+
+TEST(OrderBookMatching, SmallerBuyFullyFillsRestingSellReduces)
+{
+    OrderBook book;
+    const auto resultSell = book.addOrder(60, 110, Side::Sell);
+    const auto resultBuy = book.addOrder(50, 110, Side::Buy);
+
+    EXPECT_EQ(resultBuy->trades.size(), 1);
+    EXPECT_EQ(resultBuy->trades[0].executionQuantity, 50);
+    ASSERT_FALSE(book.findOrder(resultBuy->orderId));
+
+    const auto restingSell = book.findOrder(resultSell->orderId);
+    ASSERT_TRUE(restingSell);
+    EXPECT_EQ(restingSell->quantity, 10);
+}
+
+TEST(OrderBookMatching, BuyFillsCheaperAskAtMakersPrice) 
+{
+    OrderBook book;
+    const auto resultSell = book.addOrder(60, 100, Side::Sell);
+    const auto resultBuy = book.addOrder(60, 200, Side::Buy);
+
+    EXPECT_EQ(resultBuy->trades.size(), 1);
+    EXPECT_EQ(resultBuy->trades[0].executionQuantity, 60);
+    EXPECT_EQ(resultBuy->trades[0].executionPrice, 100);
+    ASSERT_FALSE(book.findOrder(resultBuy->orderId));
+    ASSERT_FALSE(book.findOrder(resultSell->orderId));
+}
+
+TEST(OrderBookMatching, SellFillsHigherBidAtMakersPrice) 
+{
+    OrderBook book;
+    const auto resultBuy = book.addOrder(60, 200, Side::Buy);
+    const auto resultSell = book.addOrder(60, 100, Side::Sell);
+
+    EXPECT_EQ(resultSell->trades.size(), 1);
+    EXPECT_EQ(resultSell->trades[0].executionQuantity, 60);
+    EXPECT_EQ(resultSell->trades[0].executionPrice, 200);
+    ASSERT_FALSE(book.findOrder(resultBuy->orderId));
+    ASSERT_FALSE(book.findOrder(resultSell->orderId));
+}
+
+TEST(OrderBookMatching, BuyConsumesLowerAskPricesFirst) 
+{
+    OrderBook book;
+    std::vector<OrderId> ids;
+    for (size_t i = 0; i < 3; ++i) {
+        const auto result = book.addOrder(20, 100 + i * 10, Side::Sell);
+        ids.push_back(result->orderId);
+    }
+
+    const auto resultBuy = book.addOrder(60, 200, Side::Buy);
+    ASSERT_EQ(resultBuy->trades.size(), 3);
+    for (int i = 0; i < 3; ++i) {
+        const Trade& trade = resultBuy->trades[i];
+        EXPECT_EQ(trade.executionPrice, 100 + i * 10);
+        EXPECT_EQ(trade.makerId, ids[i]);
+    }
+}
+
+TEST(OrderBookMatching, SellConsumesHigherBidPricesFirst) 
+{
+    OrderBook book;
+    std::vector<OrderId> ids;
+    for (size_t i = 0; i < 3; ++i) {
+        const auto result = book.addOrder(20, 100 + i * 10, Side::Buy);
+        ids.push_back(result->orderId);
+    }
+
+    const auto resultSell = book.addOrder(60, 90, Side::Sell);
+    ASSERT_EQ(resultSell->trades.size(), 3);
+    for (int i = 0; i < 3; ++i) {
+        const Trade& trade = resultSell->trades[i];
+        EXPECT_EQ(trade.executionPrice, 120 - i * 10);
+        EXPECT_EQ(trade.makerId, ids[2 - i]);
+    }
+}
+
+
