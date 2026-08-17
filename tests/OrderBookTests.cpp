@@ -316,4 +316,40 @@ TEST(OrderBookMatching, SellFillsHigherBidAtMakersPrice)
     ASSERT_FALSE(book.findOrder(resultSell->orderId));
 }
 
+TEST(OrderBookMatching, BuyConsumesLowerAskPricesFirst) 
+{
+    OrderBook book;
+    std::vector<OrderId> ids;
+    for (size_t i = 0; i < 3; ++i) {
+        const auto result = book.addOrder(20, 100 + i * 10, Side::Sell);
+        ids.push_back(result->orderId);
+    }
+
+    const auto resultBuy = book.addOrder(60, 200, Side::Buy);
+    ASSERT_EQ(resultBuy->trades.size(), 3);
+    for (int i = 0; i < 3; ++i) {
+        const Trade& trade = resultBuy->trades[i];
+        EXPECT_EQ(trade.executionPrice, 100 + i * 10);
+        EXPECT_EQ(trade.makerId, ids[i]);
+    }
+}
+
+TEST(OrderBookMatching, SellConsumesHigherBidPricesFirst) 
+{
+    OrderBook book;
+    std::vector<OrderId> ids;
+    for (size_t i = 0; i < 3; ++i) {
+        const auto result = book.addOrder(20, 100 + i * 10, Side::Buy);
+        ids.push_back(result->orderId);
+    }
+
+    const auto resultSell = book.addOrder(60, 90, Side::Sell);
+    ASSERT_EQ(resultSell->trades.size(), 3);
+    for (int i = 0; i < 3; ++i) {
+        const Trade& trade = resultSell->trades[i];
+        EXPECT_EQ(trade.executionPrice, 120 - i * 10);
+        EXPECT_EQ(trade.makerId, ids[2 - i]);
+    }
+}
+
 
