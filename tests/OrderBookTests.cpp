@@ -352,4 +352,38 @@ TEST(OrderBookMatching, SellConsumesHigherBidPricesFirst)
     }
 }
 
+TEST(OrderBookMatching, AsksAtSamePriceExecuteFIFO) 
+{
+    OrderBook book;
+    std::vector<OrderId> ids;
+    for (size_t i = 0; i < 3; ++i) {
+        const auto result = book.addOrder(20 + i * 5, 100, Side::Sell);
+        ids.push_back(result->orderId);
+    }
 
+    const auto resultBuy = book.addOrder(75, 200, Side::Buy);
+    ASSERT_EQ(resultBuy->trades.size(), 3);
+    for (int i = 0; i < 3; ++i) {
+        const Trade& trade = resultBuy->trades[i];
+        EXPECT_EQ(trade.executionQuantity, 20 + i * 5);
+        EXPECT_EQ(trade.makerId, ids[i]);
+    }
+}
+
+TEST(OrderBookMatching, BidsAtSamePriceExecuteFIFO) 
+{
+    OrderBook book;
+    std::vector<OrderId> ids;
+    for (size_t i = 0; i < 3; ++i) {
+        const auto result = book.addOrder(20 + i * 5, 100, Side::Buy);
+        ids.push_back(result->orderId);
+    }
+
+    const auto resultSell = book.addOrder(75, 90, Side::Sell);
+    ASSERT_EQ(resultSell->trades.size(), 3);
+    for (int i = 0; i < 3; ++i) {
+        const Trade& trade = resultSell->trades[i];
+        EXPECT_EQ(trade.executionQuantity, 20 + i * 5);
+        EXPECT_EQ(trade.makerId, ids[i]);
+    }
+}
