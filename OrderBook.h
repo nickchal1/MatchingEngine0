@@ -12,13 +12,31 @@
 class OrderBook
 {
 private:
-    std::map<Price, std::vector<OrderId>> m_bids;
-    std::map<Price, std::vector<OrderId>> m_asks;
-    std::unordered_map<OrderId, Order> m_idToOrder;
+    struct RestingOrder
+    {
+        Order order;
+        RestingOrder* prev;
+        RestingOrder* next;
+        RestingOrder(const Order& o) : order(o), prev(nullptr), next(nullptr) {}
+    };
+    struct PriceLevel
+    {
+        RestingOrder* head;
+        RestingOrder* tail;
+        Quantity totalQuantity;
+        PriceLevel() : head(nullptr), tail(nullptr), totalQuantity(0) {}
+    };
+
+    std::unordered_map<OrderId, RestingOrder> m_idToOrder;
+    std::map<Price, PriceLevel> m_bids;
+    std::map<Price, PriceLevel> m_asks;
     OrderId m_nextId = 1;
     bool validateOrder(Quantity quantity, Price price, Side side) const; 
     void matchOrder(Order& order, std::vector<Trade>& trades);
 public:
+    //CANNOT COPY, MOVE, ASSIGN!!
+    void appendToPriceLevel(PriceLevel& priceLevel, RestingOrder& order);
+    void removeFromPriceLevel(PriceLevel& priceLevel, RestingOrder& order);
     bool cancelOrder(OrderId id);
     std::optional<SubmissionResult> addOrder(Quantity quantity, Price price, Side side);
     void printOrderBook() const;
