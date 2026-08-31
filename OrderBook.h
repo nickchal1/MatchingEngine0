@@ -31,12 +31,13 @@ private:
     std::map<Price, PriceLevel> m_bids;
     std::map<Price, PriceLevel> m_asks;
     OrderId m_nextId = 1;
+
+    void appendToPriceLevel(PriceLevel& priceLevel, RestingOrder& order);
+    void removeFromPriceLevel(PriceLevel& priceLevel, RestingOrder& order);
     bool validateOrder(Quantity quantity, Price price, Side side) const; 
     void matchOrder(Order& order, std::vector<Trade>& trades);
 public:
     //CANNOT COPY, MOVE, ASSIGN!!
-    void appendToPriceLevel(PriceLevel& priceLevel, RestingOrder& order);
-    void removeFromPriceLevel(PriceLevel& priceLevel, RestingOrder& order);
     bool cancelOrder(OrderId id);
     std::optional<SubmissionResult> addOrder(Quantity quantity, Price price, Side side);
     void printOrderBook() const;

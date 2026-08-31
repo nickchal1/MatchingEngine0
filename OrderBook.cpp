@@ -3,6 +3,45 @@
 #include <algorithm>
 #include <iostream>
 
+void OrderBook::appendToPriceLevel(PriceLevel& priceLevel, RestingOrder& order) {
+    if (!priceLevel.tail) {
+        priceLevel.head = &order;
+        priceLevel.tail = &order;
+    }
+    //not empty LL
+    else {
+        priceLevel.tail->next = &order;
+        order.prev = priceLevel.tail;
+        priceLevel.tail = &order;
+    }
+    priceLevel.totalQuantity += order.order.quantity;
+}
+
+void OrderBook::removeFromPriceLevel(PriceLevel& priceLevel, RestingOrder& order) {
+    //one item
+    if(priceLevel.head == priceLevel.tail) {
+        priceLevel.tail = nullptr;
+        priceLevel.head = nullptr;
+    }
+    //head
+    else if(&order == priceLevel.head) {
+        order.next->prev = nullptr;
+        priceLevel.head = order.next;
+    }
+    //tail
+    else if (&order == priceLevel.tail) {
+        order.prev->next = nullptr;
+        priceLevel.tail = order.prev;
+    }
+    //middle
+    else {
+        order.prev->next = order.next;
+        order.next->prev = order.prev;
+    }
+    order.next = nullptr;
+    order.prev = nullptr;
+    priceLevel.totalQuantity -= order.order.quantity;
+}
 
 bool OrderBook::validateOrder(Quantity quantity, Price price, Side side) const {
     if (quantity <= 0 || price <= 0) {
