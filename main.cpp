@@ -19,7 +19,7 @@ int main()
     }
 
     std::cout << "Book before matching:\n";
-    book.printOrderBook();
+    //book.printOrderBook();
 
     const auto aggressiveBuy = book.addOrder(100, 10300, Side::Buy);
     if (!aggressiveBuy) {
@@ -38,7 +38,7 @@ int main()
     }
 
     std::cout << "\nBook after matching:\n";
-    book.printOrderBook();
+    //book.printOrderBook();
 
     if (!book.cancelOrder(secondAsk->orderId)) {
         std::cerr << "Failed to cancel remaining ask\n";
@@ -46,7 +46,7 @@ int main()
     }
 
     std::cout << "\nBook after cancellation:\n";
-    book.printOrderBook();
+    //book.printOrderBook();
 
     return 0;
 }

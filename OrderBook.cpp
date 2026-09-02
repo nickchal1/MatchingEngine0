@@ -59,10 +59,11 @@ void OrderBook::matchOrder(Order& order, std::vector<Trade>& trades) {
     if (order.side == Side::Buy) {
         while (!m_asks.empty() && m_asks.begin()->first <= order.price) {
 
-            auto& priceVector = m_asks.begin()->second;
+            PriceLevel& priceLev = m_asks.begin()->second;
             //process time prio order
-            OrderId currId = priceVector[0];
-            Order& currOrder = m_idToOrder.at(currId);
+            OrderId currId = priceLev.head->order.id;
+            RestingOrder* restingOr = priceLev.head;
+            Order& currOrder = priceLev.head->order;
 
             Trade trade;
             trade.makerId = currId;
@@ -74,6 +75,7 @@ void OrderBook::matchOrder(Order& order, std::vector<Trade>& trades) {
             
             if (order.quantity < currOrder.quantity) {
                 currOrder.quantity -= order.quantity;
+                priceLev.totalQuantity -= order.quantity;
                 order.quantity = 0;
                 //fully filled
                 return;
@@ -81,11 +83,11 @@ void OrderBook::matchOrder(Order& order, std::vector<Trade>& trades) {
             else {
                 //delete curr order
                 order.quantity -= currOrder.quantity;
-                priceVector.erase(priceVector.begin());
-                //price level empty
-                if (priceVector.empty()) {
-                    m_asks.erase(currOrder.price);
+                removeFromPriceLevel(priceLev, *restingOr);
+                if (!priceLev.head) {
+                    m_asks.erase(m_asks.begin()->first);
                 }
+                //price level empty
                 m_idToOrder.erase(currId);
                 if (order.quantity == 0) {
                     return;
@@ -98,10 +100,11 @@ void OrderBook::matchOrder(Order& order, std::vector<Trade>& trades) {
     else {
         while (!m_bids.empty() && m_bids.rbegin()->first >= order.price) {
 
-            auto& priceVector = m_bids.rbegin()->second;
+            PriceLevel& priceLev = m_bids.rbegin()->second;
             //process time prio order
-            OrderId currId = priceVector[0];
-            Order& currOrder = m_idToOrder.at(currId);
+            OrderId currId = priceLev.head->order.id;
+            RestingOrder* restingOr = priceLev.head;
+            Order& currOrder = priceLev.head->order;
 
             Trade trade;
             trade.makerId = currId;
@@ -113,6 +116,7 @@ void OrderBook::matchOrder(Order& order, std::vector<Trade>& trades) {
             
             if (order.quantity < currOrder.quantity) {
                 currOrder.quantity -= order.quantity;
+                priceLev.totalQuantity -= order.quantity;
                 order.quantity = 0;
                 //fully filled
                 return;
@@ -120,10 +124,10 @@ void OrderBook::matchOrder(Order& order, std::vector<Trade>& trades) {
             else {
                 //delete curr order
                 order.quantity -= currOrder.quantity;
-                priceVector.erase(priceVector.begin());
+                removeFromPriceLevel(priceLev, *restingOr);
                 //price level empty
-                if (priceVector.empty()) {
-                    m_bids.erase(currOrder.price);
+                if (!priceLev.head) {
+                    m_bids.erase(m_bids.rbegin()->first);
                 }
                 m_idToOrder.erase(currId);
                 if (order.quantity == 0) {
@@ -151,14 +155,20 @@ std::optional<SubmissionResult> OrderBook::addOrder(Quantity quantity, Price pri
     matchOrder(order, result.trades);
 
     if (order.quantity != 0) {
-        //add to price map (IF partial fill)
+        
+        //construct resting + add to map
+        auto [it, inserted] = m_idToOrder.try_emplace(m_nextId, order);
+
+        //add to price level (IF partial fill)
         if (side == Side::Buy) {
-            m_bids[price].push_back(m_nextId);
+            //create level
+            auto [level_it, level_inserted] = m_bids.try_emplace(price);
+            appendToPriceLevel(level_it->second, it->second);
         }
         else {
-            m_asks[price].push_back(m_nextId);
+            auto [level_it, level_inserted] = m_asks.try_emplace(price);
+            appendToPriceLevel(level_it->second, it->second);
         }
-        m_idToOrder.insert({m_nextId, order});
     }
     m_nextId++;
     return result;
@@ -171,8 +181,8 @@ bool OrderBook::cancelOrder(OrderId id) {
     if (orderIt == m_idToOrder.end()) {
         return false;
     }
-    Side side = orderIt->second.side;
-    Price price = orderIt->second.price;
+    Side side = orderIt->second.order.side;
+    Price price = orderIt->second.order.price;
 
     //map side 
     auto& sideMap = side == Side::Sell ? m_asks : m_bids;
@@ -180,16 +190,15 @@ bool OrderBook::cancelOrder(OrderId id) {
     //find in side maps
     auto vectorOrderIt = sideMap.find(price);
     if (vectorOrderIt != sideMap.end()) {
-        auto& priceVector = vectorOrderIt->second;
-        if (priceVector.empty()) {
+        PriceLevel& priceLev = vectorOrderIt->second;
+        if (!priceLev.head) {
             return false;
         }
         else {
-            auto findIt = std::find(priceVector.begin(), priceVector.end(), id);
-            if (findIt != priceVector.end()) {
+            if (orderIt != m_idToOrder.end()) {
                 //here vector is found in the correct price
-                priceVector.erase(findIt);
-                if (priceVector.empty()) {
+                removeFromPriceLevel(priceLev, orderIt->second);
+                if (!priceLev.head) {
                     sideMap.erase(price);
                 }
                 //erase order from idOrder map
@@ -204,42 +213,43 @@ bool OrderBook::cancelOrder(OrderId id) {
     }
 }
 
-void OrderBook::printOrderBook() const {
+//TODO: fix print
+// void OrderBook::printOrderBook() const {
 
-    std::cout<<"Bids"<<'\n';
+//     std::cout<<"Bids"<<'\n';
 
-    auto mapIt = m_bids.rbegin();
-    while (mapIt != m_bids.rend()) {
-        //price
-        std::cout<<mapIt->first<<'\n';
-        auto& priceVector = mapIt->second;
-        for (OrderId currId : priceVector) {
-            //id
-            std::cout<<currId<<'\n';
-            auto orderIt = m_idToOrder.find(currId);
-            //quantity
-            std::cout<<orderIt->second.quantity<<'\n';
-        }
-        mapIt++;
-    }
+//     auto mapIt = m_bids.rbegin();
+//     while (mapIt != m_bids.rend()) {
+//         //price
+//         std::cout<<mapIt->first<<'\n';
+//         auto& priceVector = mapIt->second;
+//         for (OrderId currId : priceVector) {
+//             //id
+//             std::cout<<currId<<'\n';
+//             auto orderIt = m_idToOrder.find(currId);
+//             //quantity
+//             std::cout<<orderIt->second.quantity<<'\n';
+//         }
+//         mapIt++;
+//     }
 
-    std::cout<<"Asks"<<'\n';
+//     std::cout<<"Asks"<<'\n';
 
-    auto askMapIt = m_asks.begin();
-    while (askMapIt != m_asks.end()) {
-        //price
-        std::cout<<askMapIt->first<<'\n';
-        auto& priceVector = askMapIt->second;
-        for (OrderId currId : priceVector) {
-            //id
-            std::cout<<currId<<'\n';
-            auto orderIt = m_idToOrder.find(currId);
-            //quantity
-            std::cout<<orderIt->second.quantity<<'\n';
-        }
-        askMapIt++;
-    }
-}
+//     auto askMapIt = m_asks.begin();
+//     while (askMapIt != m_asks.end()) {
+//         //price
+//         std::cout<<askMapIt->first<<'\n';
+//         auto& priceVector = askMapIt->second;
+//         for (OrderId currId : priceVector) {
+//             //id
+//             std::cout<<currId<<'\n';
+//             auto orderIt = m_idToOrder.find(currId);
+//             //quantity
+//             std::cout<<orderIt->second.quantity<<'\n';
+//         }
+//         askMapIt++;
+//     }
+// }
 
 std::optional<Price> OrderBook::bestBid() const {
 
@@ -263,5 +273,5 @@ std::optional<Order> OrderBook::findOrder(OrderId id) const {
     if(orderIt == m_idToOrder.end()) {
         return std::nullopt;
     }
-    return orderIt->second;
+    return orderIt->second.order;
 }
