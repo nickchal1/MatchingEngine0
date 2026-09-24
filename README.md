@@ -264,15 +264,3 @@ The existing tests cover normal matching behavior but do not establish correctne
 3. Extend order rules or add a networking layer while preserving one owner of the matching core.
 
 A contiguous order pool, generation-checked handles, and a direct-index price ladder remain possible experiments. They are not implemented features of this version.
-
-**Local audit artifacts**
-
-For this Desktop copy, the supporting files are in the adjacent `MatchingEngine0-audit-20260921` directory:
-
-- [Full code/history/performance audit](MatchingEngine0-audit-20260921/AUDIT.md)
-- [Comparison CSV](MatchingEngine0-audit-20260921/comparison.csv)
-- [Complete statistical summary](MatchingEngine0-audit-20260921/summary.json)
-- [Benchmark runner](MatchingEngine0-audit-20260921/run_benchmarks.py)
-- [Build script](MatchingEngine0-audit-20260921/build_audit.py)
-
-That directory also contains the exact source snapshots, raw runs, coverage output, reference checker, and bug reproducers. These are local audit links, not files currently published in the main Git repository.
