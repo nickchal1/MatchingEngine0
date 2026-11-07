@@ -1,52 +1,40 @@
 # MatchingEngine0
 
-A single-threaded **C++20 limit order book and matching engine**, built to explore matching rules, data-structure design, memory layout, and measurable performance tradeoffs.
+A single-threaded limit order book and matching engine in C++20, with price-time priority, partial fills, cancellation, and trade reporting.
 
-The engine implements price-time priority, partial fills, cancellation, and maker-price trade reporting. Its current design combines ordered price maps, hash-based order lookup, and intrusive doubly linked FIFO queues.
+Replacing per-price vectors with intrusive FIFO queues made the engine **136× faster** on a mixed workload with 100,000 orders at one price (0.17M → 22.8M operations/s). With many price levels the change makes little difference; [Performance](#performance) shows both cases.
 
-In a repeated comparison against the original vector implementation, the current engine processed **22.8 million API operations/s**, a **136× throughput improvement**, on a synthetic mixed workload with approximately **100,000 orders at one price level**. The workload, hardware, and measurement boundaries are documented below.
+## Features
 
-Documentation updated 23 September 2026. Measurements are from the 21 September audit. The implementation at `0009731` is unchanged from the measured `2ee2fa6`; the intervening commit updated only documentation.
+- Buy and sell limit orders, with validation of quantity, price, and side
+- Price priority across levels, FIFO priority within a level
+- Exact and partial fills, including orders that sweep multiple makers or price levels
+- Trades execute at the resting (maker) order's price; any unfilled remainder rests on the book
+- Cancellation by order ID, with empty price levels removed
+- Best bid, best ask, and order lookup
 
-**Implemented functionality**
+One `OrderBook` instance is one instrument.
 
-- Buy and sell limit orders, with validation of quantity, price, and side.
-- Price priority across levels and FIFO arrival priority within each level.
-- Exact fills, partial fills, and submissions that consume multiple orders or price levels.
-- Execution at the resting maker's price, with unmatched incoming limit quantity added to the book.
-- Cancellation by order ID and removal of empty price levels.
-- Best bid, best ask, and resting-order lookup.
-- Structured submission results and trade records.
-- GoogleTest coverage, CMake/CTest integration, and GitHub Actions build/test configuration.
+## Build and run
 
-Each `OrderBook` instance represents one instrument. There is no symbol-routing layer or concurrent access to a shared book.
-
-**Build and run**
-
-Requirements: CMake 3.20+, a C++20 compiler, and Git/network access for the default GoogleTest dependency fetch. The warning flags and CI configuration target GCC/Clang-style toolchains.
-
-From the repository root:
+Requires CMake 3.20+ and a C++20 compiler (GCC or Clang). GoogleTest is fetched automatically.
 
 ```sh
-cmake -S . -B build-fresh -DCMAKE_BUILD_TYPE=Release
-cmake --build build-fresh --parallel
-ctest --test-dir build-fresh --output-on-failure
-./build-fresh/matching_engine
-./build-fresh/latency_benchmark
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
 ```
 
-Use a fresh build directory if an existing CMake cache belongs to another filesystem location. Tests can be omitted with `-DBUILD_TESTING=OFF`.
-
-| Target | Purpose |
+| Target | What it is |
 | --- | --- |
-| `orderbook` | Static matching-engine library |
-| `matching_engine` | Scripted example of matching and cancellation |
-| `orderbook_tests` | GoogleTest suite; built when `BUILD_TESTING=ON` |
-| `latency_benchmark` | Tracked per-operation latency benchmark |
+| `orderbook` | The engine, as a static library |
+| `matching_engine` | Small scripted demo |
+| `orderbook_tests` | GoogleTest unit tests |
+| `latency_benchmark` | Per-operation latency at several queue depths, then the before/after numbers in [Performance](#performance) |
 
-The demo is scripted, not interactive. It submits asks for 60 at 10,200 and 50 at 10,300, then a buy for 100 at 10,300. This generates fills of 60 at 10,200 and 40 at 10,300, leaving 10 units on the second ask before cancellation. Book-print calls are currently disabled; trade output remains available.
+Pass `-DBUILD_TESTING=OFF` to skip the tests.
 
-**Using the engine**
+## Usage
 
 ```cpp
 #include "OrderBook.h"
@@ -55,29 +43,17 @@ The demo is scripted, not interactive. It submits asks for 60 at 10,200 and 50 a
 int main() {
     OrderBook book;
 
-    const auto ask = book.addOrder(60, 10'200, Side::Sell);
-    if (!ask) return 1;
+    auto ask = book.addOrder(60, 10'200, Side::Sell);   // rests on the book
+    auto buy = book.addOrder(40, 10'300, Side::Buy);    // crosses the ask
 
-    const auto buy = book.addOrder(40, 10'300, Side::Buy);
-    if (!buy) return 1;
-
-    for (const Trade& trade : buy->trades) {
-        std::cout << "maker=" << trade.makerId
-                  << " quantity=" << trade.executionQuantity
-                  << " price=" << trade.executionPrice << '\n';
-    }
-    // One trade: 40 units at the resting ask's price of 10,200.
-
-    const auto remaining = book.findOrder(ask->orderId);
-    if (remaining) {
-        std::cout << "remaining=" << remaining->quantity << '\n'; // 20
+    for (const Trade& t : buy->trades) {
+        std::cout << t.executionQuantity << " @ " << t.executionPrice << '\n';  // 40 @ 10200
     }
 
-    return book.cancelOrder(ask->orderId) ? 0 : 1;
+    std::cout << book.findOrder(ask->orderId)->quantity << '\n';  // 20 left
+    book.cancelOrder(ask->orderId);
 }
 ```
-
-The working public API is:
 
 ```cpp
 std::optional<SubmissionResult> addOrder(Quantity quantity, Price price, Side side);
@@ -87,180 +63,101 @@ std::optional<Price> bestAsk() const;
 std::optional<Order> findOrder(OrderId id) const;
 ```
 
-`addOrder()` rejects nonpositive prices/quantities and invalid sides with `std::nullopt`; these validation failures do not consume an ID. Successful submissions return an assigned order ID and a vector of trades. Fully filled orders do not remain in the lookup index. `findOrder()` returns a copy of the resting order, not a mutable reference into the book.
+- `addOrder` returns `std::nullopt` for a nonpositive price or quantity or an invalid side. Rejected orders don't use up an ID.
+- On success it returns the assigned order ID and the list of trades.
+- `findOrder` returns a copy, and only finds orders still resting on the book.
+- Prices are integers in whatever unit the caller chooses (for example, cents), so matching never compares floating-point values.
 
-`printOrderBook()` is also declared in the header, but its definition is commented out. Calling it currently fails to link.
-
-**Data model and ownership**
-
-| Type | Representation | Purpose |
-| --- | --- | --- |
-| `OrderId` | `std::uint64_t` | Book-assigned identifier |
-| `Price` | `std::int32_t` | Integer price units chosen by the caller |
-| `Quantity` | `std::int64_t` | Order quantity |
-| `Side` | `enum class { Buy, Sell }` | Order direction |
-| `Order` | ID, quantity, price, side | Order record |
-| `Trade` | Maker/taker IDs, execution quantity/price, taker side | One execution |
-| `SubmissionResult` | Order ID and `std::vector<Trade>` | Submission outcome |
-
-Integer prices avoid floating-point comparisons in matching. The engine does not prescribe a currency scale or enforce an instrument-specific tick size. IDs are incremented for accepted submissions; exhaustion is not currently handled.
-
-Current storage:
+## Design
 
 ```cpp
-struct RestingOrder {
-    Order order;
-    RestingOrder* prev;
-    RestingOrder* next;
-    // Constructor initializes both links to nullptr.
-};
+std::unordered_map<OrderId, RestingOrder> m_idToOrder;  // owns every resting order
+std::map<Price, PriceLevel> m_bids;                     // highest key = best bid
+std::map<Price, PriceLevel> m_asks;                     // lowest key = best ask
 
-struct PriceLevel {
-    RestingOrder* head;
-    RestingOrder* tail;
-    Quantity totalQuantity;
-    // Constructor initializes an empty level.
-};
-
-std::unordered_map<OrderId, RestingOrder> m_idToOrder;
-std::map<Price, PriceLevel> m_bids;
-std::map<Price, PriceLevel> m_asks;
+struct RestingOrder { Order order; RestingOrder* prev; RestingOrder* next; };
+struct PriceLevel   { RestingOrder* head; RestingOrder* tail; Quantity totalQuantity; };
 ```
 
-The hash map owns resting orders by value. FIFO links point into its nodes; rehashing does not invalidate pointers to existing elements. The price maps own price-level records. Container destruction releases their storage; the raw links do not imply separately owned heap allocations.
+Each price level is a doubly linked FIFO queue threaded through orders stored in the hash map. The hash map never moves its elements, so the links stay valid when it rehashes. To cancel, the engine finds the order by ID and unlinks it in O(1). It never has to search a queue.
 
-The best bid is the highest bid level, and the best ask is the lowest ask level. Matching visits the opposite side from best to worst, consumes its FIFO head, updates quantities, and removes fully filled orders and empty levels.
+The first version stored `std::map<Price, std::vector<OrderId>>`. Cancelling meant searching the vector, and filling the front order shifted every order behind it, so both grew linearly with queue depth.
 
-**Evolution and complexity**
+N = orders at one price, P = number of price levels:
 
-The baseline used `std::map<Price, std::vector<OrderId>>`. Cancelling an order required searching the vector and erasing an element; consuming the FIFO head shifted the remaining IDs. Both become expensive as the queue at one price grows.
-
-The current implementation uses the ID index to reach an order directly, then updates its neighboring links. Let **N** be orders at a price and **P** distinct price levels:
-
-| Operation | Vector baseline | Current intrusive queues |
+| Operation | Vector version | Current version |
 | --- | --- | --- |
-| ID lookup | Expected O(1) | Expected O(1) |
-| Price-level lookup | O(log P) | O(log P) |
-| Remove a known order within its level | O(N) search/shift | O(1) unlink |
-| Remove a filled queue head | O(N) shift | O(1) unlink |
-| Append within a level | Amortized O(1), possible vector growth | O(1) linking |
+| Find order by ID | O(1) expected | O(1) expected |
+| Find price level | O(log P) | O(log P) |
+| Cancel an order within its level | O(N) | O(1) |
+| Fill the front order | O(N) | O(1) |
+| Add to a level | Amortized O(1) | O(1) |
 
-The full cancellation API still performs a price-map lookup; O(1) applies to queue unlinking. Insertions still allocate hash nodes, and trade vectors can allocate during matching. Best-price access uses the extreme of an already ordered map rather than searching the tree for a price.
+Price levels are still a `std::map` (a balanced tree), so books with many levels still pay O(log P). Reordering the fields of `Order` also shrank it from 32 to 24 bytes by removing padding.
 
-Key milestones were order layout in July, matching and trade reports in August, benchmark/test expansion in mid-August, and intrusive-queue integration at the end of August and start of September. There are two implementation stages here, not a contiguous-pool or direct-price-ladder implementation.
+## Performance
 
-**Memory layout and allocation tradeoffs**
+The throughput section of `latency_benchmark` (`benchmarks/OrderBookBenchmark.cpp`) times 2,000,000 operations per workload after a 100,000-operation warmup and reports the mean. It calls the engine directly in one process: there is no I/O or networking. It uses only the public API, so it builds unchanged against the old version (`2f9ac08`).
 
-Reordering `Order` from `{id, price, quantity, side}` to `{id, quantity, price, side}` reduced its measured arm64 size from **32 to 24 bytes**, a **25% reduction**. This saves eight bytes per raw record, or about 7.63 MiB per million records before container overhead. Both compared benchmark versions already include this layout change.
+The figures below compare the vector version (`2f9ac08`) with the current one (`2ee2fa6`). Each is the median of three runs on an Apple M5 using Apple Clang 21 with `-O3 -DNDEBUG`.
 
-The intrusive queue adds two pointers per resting record while removing the separate vector of IDs. It does not eliminate dynamic allocation. A separate allocation probe at 100,000-order depth found:
+**Deep queues (about 100,000 orders at one price)**, where the redesign helps:
 
-| 100,000 add/cancel pairs, 200,000 API operations | Baseline | Current |
-| --- | --- | --- |
-| C++ allocation calls | 100,000 | 100,000 |
-| Allocations per operation | 0.50 | 0.50 |
-| Cumulative bytes requested | 4.8 MB | 6.4 MB |
-
-These are requested allocation bytes, not peak memory or resident-set size. The current version requests larger order nodes. Performance improvements should not be described as an allocation-free hot path or a general memory-footprint reduction.
-
-**Tests and verification**
-
-The repository contains **33 Google Tests**: 19 in `OrderBookValidation` and 14 in `OrderBookMatching`. They cover input validation, IDs, empty/resting state, cancellation, crossing rules, partial/exact fills, maker-price execution, multi-level price priority, and FIFO on both sides.
-
-The 21 September audit measured:
-
-| Existing suite metric | Result |
-| --- | --- |
-| Assertion macro sites | 103 |
-| Assertion evaluations in one passing run | 155 |
-| Executable-line coverage of `OrderBook.cpp` | 171/180 = **95.00%** |
-| Branch-outcome coverage of `OrderBook.cpp` | 62/66 = **93.94%** |
-| Defined functions exercised in `OrderBook.cpp` | 9/9 |
-
-Both vector and intrusive implementations passed the unchanged suite under AddressSanitizer and UndefinedBehaviorSanitizer. These coverage values apply to `OrderBook.cpp`, not the entire repository. Sanitizers and coverage were run during the audit; the checked-in GitHub Actions workflow configures an Ubuntu CMake build and CTest run for pushes to main and PRs targeting main.
-
-A separate audit-only reference checker also tested each version against a simple independent implementation: **200,000 randomized events across 20 seeds**, plus **8,200 targeted events** exercising rehashing, tail/middle/head cancellation, and sweeps. Each version passed 19,379,969 checker predicates and 58,989 trade comparisons under sanitizers. This external checker is separate from the repository's 33-test suite.
-
-**Tracked latency benchmark**
-
-`benchmarks/OrderBookBenchmark.cpp` measures individual operations using `std::chrono::steady_clock` and reports nearest-rank p50, p90, p99, and p99.9 in nanoseconds.
-
-| Scenario | Timed operation |
-| --- | --- |
-| `addResting` | Submit an order that rests; cancel outside the timed region |
-| `addMatching` | Submit an order consuming one maker; replenish afterward |
-| `cancelOldest` | Cancel the FIFO head; replenish afterward |
-| `cancelNewest` | Cancel the newest order; replenish afterward |
-| `cancelRandom` | Cancel a selected live order; replenish afterward |
-| `mixedOperations` | Weighted 50% add / 45% cancel / 5% match sequence |
-
-The suite runs **100,000 samples per configuration**, with depths 1, 100, 1,000, 10,000, and 100,000; resting adds also include depth 0. This gives **31 operation/depth configurations and 3.1 million timed API operations per run**, plus 100,000 clock-calibration samples.
-
-The original mixed sequence uses a seeded random distribution, so its proportions are approximate and its depth can drift. The other scenarios replenish or remove orders between samples to control depth. Setup, result sorting, and printing are outside timed regions; operation boundaries are those in the source.
-
-**Repeated baseline comparison**
-
-The following results use the pre-existing throughput harness in the separate `MatchingEngine0-benchmark-lab` worktree. That harness and its saved results were uncommitted at the audit date and are not available through the main repository's default targets. This distinction matters for reproducing the figures from a fresh clone.
-
-Measurement setup:
-
-- Baseline: vector implementation at `2f9ac08`.
-- Optimized: intrusive implementation at `2ee2fa6`.
-- Hardware: Apple M5, 16 GiB RAM, arm64 macOS 25.6.0.
-- Compiler: Apple Clang 21.0.0; identical `-std=c++20 -O3 -DNDEBUG` builds, without LTO or sanitizers.
-- Three sequential runs per version, reversing version order in the middle repetition.
-- For each batched configuration: 512 batches × 4,096 operations = **2,097,152 timed operations**, after **65,536 warmup operations**.
-- Reported rates are medians of three run-level results; speedup is the ratio of median baseline and optimized mean times.
-
-At approximately 100,000 orders at a single price:
-
-| Workload | Baseline M ops/s | Current M ops/s | Speedup |
+| Workload | Before (M ops/s) | After (M ops/s) | Speedup |
 | --- | --- | --- | --- |
-| Mixed: 50% add / 45% cancel / 5% match | 0.167 | 22.835 | 136.5× |
-| Alternate add / cancel newest | 0.172 | 78.699 | 457.8× |
-| Alternate match / replenish | 0.172 | 43.222 | 251.4× |
-| Alternate random cancel / replenish | 0.156 | 23.990 | 153.9× |
+| Mixed: 50% add / 45% cancel / 5% match | 0.167 | 22.8 | 136× |
+| Add, then cancel newest | 0.172 | 78.7 | 458× |
+| Match one order, then replenish | 0.172 | 43.2 | 251× |
+| Cancel a random order, then replenish | 0.156 | 24.0 | 154× |
 
-The mixed workload's mean measured cost fell from **5,978.20 to 43.79 ns/op**, a **99.27% reduction**. Its current throughput ranged from **22.744M to 22.873M operations/s** across the three runs. This lab scenario repeats a seeded, shuffled 100-operation schedule; depth fluctuates within a block and stays near its initial value.
+Timed one at a time, p99 for a random cancel at this depth fell from 14,541 ns to 125 ns.
 
-Rates count in-process API operations. In a match/replenish pair, matching and replenishment each count as one operation. They do not measure network throughput or trades per second. RNG, checksums, validation, and ID-tracker bookkeeping are included where present in the timed driver loop; parsing and output I/O are excluded.
+**Many price levels**, where it doesn't:
 
-The gains are workload dependent:
-
-| Additional workload | Baseline mean | Current mean | Observation |
+| Workload | Before | After | Change |
 | --- | --- | --- | --- |
-| One submission consuming 1,000 makers at one price | 50.93 μs | 11.52 μs | **4.42× faster** |
-| One submission consuming makers across 1,000 prices | 50.77 μs | 47.82 μs | **1.06× faster** |
-| Add/cancel lookup across 10,000 price levels | 63.47 ns/op | 71.53 ns/op | **12.70% more time** |
-| Add/cancel lookup across 100,000 price levels | 115.77 ns/op | 117.83 ns/op | **1.77% more time** |
+| Sweep 1,000 makers at one price | 50.9 μs | 11.5 μs | 4.4× faster |
+| Sweep 1,000 makers across 1,000 prices | 50.8 μs | 47.8 μs | 1.06× faster |
+| Add/cancel across 10,000 price levels | 63.5 ns | 71.5 ns | 13% slower |
+| Add/cancel across 100,000 price levels | 115.8 ns | 117.8 ns | 2% slower |
 
-These results distinguish deep queues from many distinct price levels. The intrusive rewrite addresses queue traversal and shifts; the price map remains a tree. The measured slowdowns do not establish a specific cache-related cause without profiling.
+The remaining cost is the price-level tree, which a direct-index price ladder would address.
 
-The original, individually timed latency suite also recorded random-cancel p99 falling from **14,541 to 125 ns** at 100,000-order depth, a **99.14% reduction** in the median reported p99. Optimized p99 ranged from 84 to 208 ns across runs.
+How to read these numbers:
 
-**Interpreting the measurements**
+- Throughput rows are means over many operations. The sweep rows and the p99 time single operations.
+- The Mac timer ticks every ~42 ns, so single-operation latencies are rounded to multiples of that.
+- Results come from a laptop without CPU pinning. They describe these builds and workloads, not production performance.
 
-The measured Mac timer scale was approximately **41.67 ns per tick**. A 0 ns sample does not indicate zero execution cost, and values around 42 ns are quantized. Batched timing provides useful average costs below one tick by measuring many operations together.
+### Reproducing
 
-For batched throughput rows, reported percentiles are percentiles of **batch averages**, each covering 4,096 operations. They are not individual-operation p99/p99.9 latency. The fanout rows and original latency suite time individual submissions/operations instead.
+Current engine (use a Release build):
 
-The audit ran both suites three times for each version, totaling **198,504,768 timed engine API operations**, excluding driver controls, warmup, and untimed setup. This total describes the verification campaign, not one workload. Results were collected on a laptop without CPU pinning; they are observations for the specified builds and workloads rather than general production guarantees.
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+./build/latency_benchmark
+```
 
-**Known limitations**
+The current engine finishes in a few seconds; the old version takes about a minute. Absolute numbers depend on the machine, so compare the two versions on the same one.
 
-- Limit orders and cancellation only: no market orders, IOC/FOK, modification, participant ownership, or self-trade prevention.
-- No network layer, persistence, market-data parser, or concurrent book access.
-- Copy operations remain implicitly enabled despite internal pointers. Copying a book can make operations on the copy affect the original. Do not copy an `OrderBook`; copy/move policy needs explicit implementation and tests.
-- Aggregating individually valid quantities can overflow `Quantity`; an overflow policy or checked arithmetic is needed.
-- Allocation failure during submission can leave the order index and price levels inconsistent; rollback/exception guarantees need work.
-- `printOrderBook()` has no active definition, and order-ID exhaustion is not handled.
+## Testing
 
-The existing tests cover normal matching behavior but do not establish correctness for all failure conditions. These limitations are tracked separately from the measured performance improvements.
+- **Unit tests:** 33 GoogleTest cases covering validation, ID assignment, cancellation, crossing rules, partial and exact fills, maker-price execution, multi-level price priority, and FIFO on both sides. They cover 95% of lines in `OrderBook.cpp`.
+- **Sanitizers:** both versions pass the full test suite under AddressSanitizer and UndefinedBehaviorSanitizer.
+- **CI:** GitHub Actions builds and runs all tests on every push and pull request to `main`.
 
-**Next work**
+## Limitations
 
-1. Resolve copy semantics, aggregate overflow, exception safety, and the unfinished printing API; add focused regressions.
-2. Bring the separate benchmark harness and reproducible comparison artifacts into the repository, with batch and per-operation percentiles labeled clearly.
-3. Extend order rules or add a networking layer while preserving one owner of the matching core.
+- Limit orders only: no market, IOC/FOK, modify, account ownership, or self-trade prevention.
+- Single-threaded with no networking or persistence.
+- `OrderBook` can still be copied, but a copy's internal pointers would point into the original. Don't copy it.
+- Summing many valid quantities can overflow `Quantity`.
+- An allocation failure mid-submission can leave the book inconsistent.
+- `printOrderBook()` is declared but not defined, and order-ID exhaustion isn't handled.
 
-A contiguous order pool, generation-checked handles, and a direct-index price ladder remain possible experiments. They are not implemented features of this version.
+## Roadmap
+
+1. Fix the limitations above: delete copy/move, check for overflow, add exception safety.
+2. Add sanitizer builds to CI.
+3. Add a networking layer: TCP order entry and a market-data feed around a single engine thread.

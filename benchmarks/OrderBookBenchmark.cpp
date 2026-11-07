@@ -225,6 +225,226 @@ std::vector<long long> mixedOperations(size_t sampleCount, size_t depth) {
     return samples;
 }
 
+void meanPrint(double nsPerOp) {
+
+    std::cout<<"mean ns "<<nsPerOp<<'\n';
+    std::cout<<"M ops/s "<<1'000.0 / nsPerOp<<'\n';
+}
+
+double addCancelThroughput(size_t opCount, size_t depth) {
+    OrderBook book;
+    const size_t warmup = 100'000;
+
+    for (std::size_t i = 0; i < depth; ++i) {
+        book.addOrder(100, 10'000, Side::Buy);
+    }
+
+    std::chrono::steady_clock::time_point start;
+    OrderId lastId = 0;
+
+    for (std::size_t i = 0; i < warmup + opCount; ++i) {
+        if (i == warmup) {
+            start = std::chrono::steady_clock::now();
+        }
+        //add then cancel it
+        if (i % 2 == 0) {
+            std::optional<SubmissionResult> res = book.addOrder(100, 10'000, Side::Buy);
+            lastId = res->orderId;
+        }
+        else {
+            book.cancelOrder(lastId);
+        }
+    }
+    const auto finish{std::chrono::steady_clock::now()};
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start);
+    return static_cast<double>(elapsed.count()) / opCount;
+}
+
+double matchThroughput(size_t opCount, size_t depth) {
+    OrderBook book;
+    const size_t warmup = 100'000;
+
+    for (std::size_t i = 0; i < depth; ++i) {
+        book.addOrder(100, 10'000, Side::Buy);
+    }
+
+    std::chrono::steady_clock::time_point start;
+
+    for (std::size_t i = 0; i < warmup + opCount; ++i) {
+        if (i == warmup) {
+            start = std::chrono::steady_clock::now();
+        }
+        //match oldest buy then replenish
+        if (i % 2 == 0) {
+            book.addOrder(100, 10'000, Side::Sell);
+        }
+        else {
+            book.addOrder(100, 10'000, Side::Buy);
+        }
+    }
+    const auto finish{std::chrono::steady_clock::now()};
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start);
+    return static_cast<double>(elapsed.count()) / opCount;
+}
+
+double cancelRandomThroughput(size_t opCount, size_t depth) {
+    OrderBook book;
+    const size_t warmup = 100'000;
+    std::vector<OrderId> validIds;
+
+    for (std::size_t i = 0; i < depth; ++i) {
+        std::optional<SubmissionResult> res = book.addOrder(100, 10'000, Side::Buy);
+        validIds.push_back(res->orderId);
+    }
+
+    srand(2029);
+    std::chrono::steady_clock::time_point start;
+    size_t randomIndex = 0;
+
+    for (std::size_t i = 0; i < warmup + opCount; ++i) {
+        if (i == warmup) {
+            start = std::chrono::steady_clock::now();
+        }
+        //cancel random then replenish same slot
+        if (i % 2 == 0) {
+            randomIndex = rand() % depth;
+            book.cancelOrder(validIds[randomIndex]);
+        }
+        else {
+            std::optional<SubmissionResult> res = book.addOrder(100, 10'000, Side::Buy);
+            validIds[randomIndex] = res->orderId;
+        }
+    }
+    const auto finish{std::chrono::steady_clock::now()};
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start);
+    return static_cast<double>(elapsed.count()) / opCount;
+}
+
+double mixedThroughput(size_t opCount, size_t depth) {
+    OrderBook book;
+    const size_t warmup = 100'000;
+    std::vector<OrderId> validIds;
+    //where each id sits in validIds
+    std::vector<size_t> idToIndex(depth + warmup + opCount + 1);
+
+    for (std::size_t i = 0; i < depth; ++i) {
+        std::optional<SubmissionResult> res = book.addOrder(100, 10'000, Side::Buy);
+        idToIndex[res->orderId] = validIds.size();
+        validIds.push_back(res->orderId);
+    }
+
+    //50 add, 45 cancel, 5 match in a fixed shuffled order
+    std::vector<int> schedule;
+    for (int i = 0; i < 50; ++i) {
+        schedule.push_back(0);
+    }
+    for (int i = 0; i < 45; ++i) {
+        schedule.push_back(1);
+    }
+    for (int i = 0; i < 5; ++i) {
+        schedule.push_back(2);
+    }
+    std::mt19937 generator{2029};
+    std::shuffle(schedule.begin(), schedule.end(), generator);
+    srand(2029);
+
+    std::chrono::steady_clock::time_point start;
+
+    for (std::size_t i = 0; i < warmup + opCount; ++i) {
+        if (i == warmup) {
+            start = std::chrono::steady_clock::now();
+        }
+        int op = schedule[i % schedule.size()];
+
+        //force add
+        if (op != 0 && validIds.empty()) {
+            op = 0;
+        }
+        OrderId removedId = 0;
+        switch (op) {
+            case 0: {
+                std::optional<SubmissionResult> res = book.addOrder(100, 10'000, Side::Buy);
+                idToIndex[res->orderId] = validIds.size();
+                validIds.push_back(res->orderId);
+                break;
+            }
+            case 1: {
+                removedId = validIds[rand() % validIds.size()];
+                book.cancelOrder(removedId);
+                break;
+            }
+            case 2: {
+                std::optional<SubmissionResult> res = book.addOrder(100, 10'000, Side::Sell);
+                removedId = res->trades[0].makerId;
+                break;
+            }
+        }
+        //swap with last and pop
+        if (op != 0) {
+            size_t index = idToIndex[removedId];
+            OrderId lastId = validIds[validIds.size() - 1];
+            validIds[index] = lastId;
+            idToIndex[lastId] = index;
+            validIds.pop_back();
+        }
+    }
+    const auto finish{std::chrono::steady_clock::now()};
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start);
+    return static_cast<double>(elapsed.count()) / opCount;
+}
+
+double addCancelLevelsThroughput(size_t opCount, size_t levels) {
+    OrderBook book;
+    const size_t warmup = 100'000;
+
+    //one order per price level
+    for (std::size_t i = 0; i < levels; ++i) {
+        book.addOrder(100, static_cast<Price>(1'000 + i), Side::Buy);
+    }
+
+    srand(2029);
+    std::chrono::steady_clock::time_point start;
+    OrderId lastId = 0;
+
+    for (std::size_t i = 0; i < warmup + opCount; ++i) {
+        if (i == warmup) {
+            start = std::chrono::steady_clock::now();
+        }
+        //add at random level then cancel it
+        if (i % 2 == 0) {
+            Price price = static_cast<Price>(1'000 + rand() % levels);
+            std::optional<SubmissionResult> res = book.addOrder(100, price, Side::Buy);
+            lastId = res->orderId;
+        }
+        else {
+            book.cancelOrder(lastId);
+        }
+    }
+    const auto finish{std::chrono::steady_clock::now()};
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start);
+    return static_cast<double>(elapsed.count()) / opCount;
+}
+
+double sweepMean(size_t sampleCount, size_t makers, bool acrossLevels) {
+    OrderBook book;
+    long long totalNs = 0;
+
+    for (std::size_t i = 0; i < sampleCount; ++i) {
+        //untimed
+        for (std::size_t m = 0; m < makers; ++m) {
+            Price price = acrossLevels ? static_cast<Price>(10'000 + m) : 10'000;
+            book.addOrder(100, price, Side::Buy);
+        }
+
+        const auto start{std::chrono::steady_clock::now()};
+        book.addOrder(static_cast<Quantity>(100 * makers), 10'000, Side::Sell);
+        const auto finish{std::chrono::steady_clock::now()};
+        const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start);
+        totalNs += elapsed.count();
+    }
+    return static_cast<double>(totalNs) / sampleCount;
+}
+
 int main() {
 
     std::cout<<"Matching Engine Latency Benchmark\n"; 
@@ -268,6 +488,41 @@ int main() {
     for (size_t depth : depths) {
         std::cout<<"mixedOperations depth: "<<depth<<'\n';
         percentilePrint(mixedOperations(sampleCount, depth));
+    }
+
+    //THROUGHPUT
+    const size_t opCount = 2'000'000;
+    for (size_t depth : depths) {
+        std::cout<<"addCancel throughput depth: "<<depth<<'\n';
+        meanPrint(addCancelThroughput(opCount, depth));
+    }
+    for (size_t depth : depths) {
+        std::cout<<"match throughput depth: "<<depth<<'\n';
+        meanPrint(matchThroughput(opCount, depth));
+    }
+    for (size_t depth : depths) {
+        std::cout<<"cancelRandom throughput depth: "<<depth<<'\n';
+        meanPrint(cancelRandomThroughput(opCount, depth));
+    }
+    for (size_t depth : depths) {
+        std::cout<<"mixed throughput depth: "<<depth<<'\n';
+        meanPrint(mixedThroughput(opCount, depth));
+    }
+    //PRICE LEVELS
+    std::vector<size_t> levelCounts{1, 100, 10'000, 100'000};
+    for (size_t levels : levelCounts) {
+        std::cout<<"addCancel throughput levels: "<<levels<<'\n';
+        meanPrint(addCancelLevelsThroughput(opCount, levels));
+    }
+    //SWEEPS
+    std::vector<size_t> makerCounts{10, 100, 1'000};
+    for (size_t makers : makerCounts) {
+        std::cout<<"sweep one level makers: "<<makers<<'\n';
+        std::cout<<"mean ns "<<sweepMean(2'000, makers, false)<<'\n';
+    }
+    for (size_t makers : makerCounts) {
+        std::cout<<"sweep across levels makers: "<<makers<<'\n';
+        std::cout<<"mean ns "<<sweepMean(2'000, makers, true)<<'\n';
     }
 
     return 0;
