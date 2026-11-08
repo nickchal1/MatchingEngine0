@@ -53,14 +53,14 @@ void encode(const NewOrder& newOrder, std::vector<std::uint8_t>& buffer) {
 
 std::optional<NewOrder> decode(const std::vector<std::uint8_t>& buffer) {
     //not full order
-    if (buffer.size() < 22) {
+    if (buffer.size() != 22) {
         return std::nullopt;
     }
     std::size_t offset = 0;
 
     //type, id, side, price, quantity
     std::uint8_t type = readU8(buffer, offset);
-    if (type != static_cast<uint8_t>(MessageType::NewOrder)) {
+    if (type != static_cast<std::uint8_t>(MessageType::NewOrder)) {
         return std::nullopt;
     }
     ClientOrderId id = readU64(buffer, offset);
@@ -68,6 +68,6 @@ std::optional<NewOrder> decode(const std::vector<std::uint8_t>& buffer) {
     Price price = readU32(buffer, offset);
     Quantity quantity = readU64(buffer, offset);
 
-    NewOrder order{id, quantity, price, side};
+    NewOrder order{id, side, price, quantity};
     return order;
 }

@@ -30,6 +30,23 @@ target_link_libraries(orderbook PRIVATE
     project_warnings
 )
 
+# Protocol library.
+add_library(protocol STATIC
+    Protocol.cpp
+)
+
+target_compile_features(protocol PUBLIC
+    cxx_std_20
+)
+
+target_include_directories(protocol PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(protocol PRIVATE
+    project_warnings
+)
+
 # Demo executable.
 add_executable(matching_engine
     main.cpp
@@ -66,10 +83,12 @@ if(BUILD_TESTING)
 
     add_executable(orderbook_tests
         tests/OrderBookTests.cpp
+        tests/ProtocolTests.cpp
     )
 
     target_link_libraries(orderbook_tests PRIVATE
         orderbook
+        protocol
         project_warnings
         GTest::gtest_main
     )

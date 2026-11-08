@@ -26,9 +26,9 @@ enum class AckType : std::uint8_t
 struct NewOrder
 {
     ClientOrderId clientId;
-    Quantity quantity;
-    Price price;
     Side side;
+    Price price;
+    Quantity quantity;
 };
 
 struct Cancel
