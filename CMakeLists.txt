@@ -15,7 +15,7 @@ target_compile_options(project_warnings INTERFACE
 
 # Core order-book library.
 add_library(orderbook STATIC
-    OrderBook.cpp
+    engine/OrderBook.cpp
 )
 
 target_compile_features(orderbook PUBLIC
@@ -23,7 +23,7 @@ target_compile_features(orderbook PUBLIC
 )
 
 target_include_directories(orderbook PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine
 )
 
 target_link_libraries(orderbook PRIVATE
@@ -32,7 +32,7 @@ target_link_libraries(orderbook PRIVATE
 
 # Protocol library.
 add_library(protocol STATIC
-    Protocol.cpp
+    protocol/Protocol.cpp
 )
 
 target_compile_features(protocol PUBLIC
@@ -40,10 +40,11 @@ target_compile_features(protocol PUBLIC
 )
 
 target_include_directories(protocol PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/protocol
 )
 
 target_link_libraries(protocol PRIVATE
+    PUBLIC orderbook
     project_warnings
 )
 
