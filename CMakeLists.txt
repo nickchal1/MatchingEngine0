@@ -67,6 +67,16 @@ target_link_libraries(latency_benchmark PRIVATE
     project_warnings
 )
 
+add_executable(server
+    server.cpp
+)
+
+target_link_libraries(server PRIVATE
+    orderbook
+    protocol
+    project_warnings
+)
+
 # Testing support.
 include(CTest)
 

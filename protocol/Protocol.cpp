@@ -53,7 +53,7 @@ void encode(const NewOrder& newOrder, std::vector<std::uint8_t>& buffer) {
 
 std::optional<NewOrder> decode(const std::vector<std::uint8_t>& buffer) {
     //not full order
-    if (buffer.size() != 22) {
+    if (buffer.size() != NewOrderSize) {
         return std::nullopt;
     }
     std::size_t offset = 0;

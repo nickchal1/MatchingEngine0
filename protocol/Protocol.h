@@ -7,6 +7,7 @@
 
 
 using ClientOrderId = std::uint64_t;
+constexpr std::size_t NewOrderSize = 22;
 
 enum class MessageType : std::uint8_t
 {
