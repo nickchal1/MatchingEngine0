@@ -77,6 +77,15 @@ target_link_libraries(server PRIVATE
     project_warnings
 )
 
+add_executable(client
+    client.cpp
+)
+
+target_link_libraries(client PRIVATE
+    protocol
+    project_warnings
+)
+
 # Testing support.
 include(CTest)
 
