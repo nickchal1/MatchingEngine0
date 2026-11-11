@@ -101,8 +101,14 @@ int main() {
                     Price price = newOrder->price;
                     Side side = newOrder->side;
 
-                    //id, q, p, side
-                    book.addOrder(quantity, price, side);
+                    // id, q, p, side
+                    auto submissionResult = book.addOrder(quantity, price, side);
+                    if (!submissionResult) {
+                        std::cout << "rejected\n";
+                    }
+                    else {
+                        std::cout << submissionResult->orderId << '\n';
+                    }
                     pending.erase(pending.begin(), pending.begin() + NewOrderSize);
                 }
             }
