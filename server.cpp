@@ -101,14 +101,23 @@ int main() {
                     Price price = newOrder->price;
                     Side side = newOrder->side;
 
+                    //print
+                    std::cout << "==========\n";
+                    std::cout << "IN " << (side == Side::Buy ? "BUY " : "SELL ")
+                              << quantity << " @ " << price << '\n';
+
                     // id, q, p, side
                     auto submissionResult = book.addOrder(quantity, price, side);
                     if (!submissionResult) {
-                        std::cout << "rejected\n";
+                        std::cout << "REJECTED\n";
                     }
                     else {
-                        std::cout << submissionResult->orderId << '\n';
+                        std::cout << "ORDER " << submissionResult->orderId << '\n';
+                        for (const auto& trade : submissionResult->trades) {
+                            std::cout << "TRADE " << trade.executionQuantity << " @ " << trade.executionPrice << '\n';
+                        }
                     }
+                    book.printOrderBook();
                     pending.erase(pending.begin(), pending.begin() + NewOrderSize);
                 }
             }

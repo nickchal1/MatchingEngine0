@@ -8,6 +8,7 @@
 #include <stdio.h>
 
 #include "Protocol.h"
+#include <thread>
 
 int main() {
 
@@ -38,13 +39,19 @@ int main() {
     freeaddrinfo(servinfo);
 
     std::vector<std::uint8_t> buff;
-    NewOrder newOrder{5, Side::Buy, 100, 1000};
-    encode(newOrder, buff);
 
-    int sen = send(socket_fd, buff.data(), NewOrderSize, 0);
-    if (sen == -1) {
-        perror("send");
-        return 1;
+    for (std::uint64_t i = 0; i < 10; ++i) {
+        buff.clear();
+        NewOrder newOrder{i + 1, Side::Buy, 100, 10};
+        encode(newOrder, buff);
+        int sen = send(socket_fd, buff.data(), NewOrderSize, 0);
+        if (sen == -1) {
+            perror("send");
+            return 1;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(500)
+        );
     }
 
     close(socket_fd);
