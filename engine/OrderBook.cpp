@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <iostream>
+#include <iomanip>
+
 
 void OrderBook::appendToPriceLevel(PriceLevel& priceLevel, RestingOrder& order) {
     if (!priceLevel.tail) {
@@ -213,44 +215,28 @@ bool OrderBook::cancelOrder(OrderId id) {
     }
 }
 
-//TODO: fix print
-// void OrderBook::printOrderBook() const {
+void OrderBook::printOrderBook() const {
 
-//     std::cout<<"Bids"<<'\n';
+    //asks
+    std::cout << "ASKS\n";
+    auto askIt = m_asks.rbegin();
+    while (askIt != m_asks.rend()) {
+        std::cout << std::setw(5) << askIt->first << " "
+            << std::setw(8) << askIt->second.totalQuantity << '\n';
+        askIt++;
+    }
 
-//     auto mapIt = m_bids.rbegin();
-//     while (mapIt != m_bids.rend()) {
-//         //price
-//         std::cout<<mapIt->first<<'\n';
-//         auto& priceVector = mapIt->second;
-//         for (OrderId currId : priceVector) {
-//             //id
-//             std::cout<<currId<<'\n';
-//             auto orderIt = m_idToOrder.find(currId);
-//             //quantity
-//             std::cout<<orderIt->second.quantity<<'\n';
-//         }
-//         mapIt++;
-//     }
+    std::cout << "--------------\n";
 
-//     std::cout<<"Asks"<<'\n';
-
-//     auto askMapIt = m_asks.begin();
-//     while (askMapIt != m_asks.end()) {
-//         //price
-//         std::cout<<askMapIt->first<<'\n';
-//         auto& priceVector = askMapIt->second;
-//         for (OrderId currId : priceVector) {
-//             //id
-//             std::cout<<currId<<'\n';
-//             auto orderIt = m_idToOrder.find(currId);
-//             //quantity
-//             std::cout<<orderIt->second.quantity<<'\n';
-//         }
-//         askMapIt++;
-//     }
-// }
-
+    //bids
+    auto bidIt = m_bids.rbegin();
+    while (bidIt != m_bids.rend()) {
+        std::cout << std::setw(5) << bidIt->first << " "
+            << std::setw(8) << bidIt->second.totalQuantity << '\n';
+        bidIt++;
+    }
+    std::cout << "BIDS\n";
+}
 std::optional<Price> OrderBook::bestBid() const {
 
     if (m_bids.empty()) {
