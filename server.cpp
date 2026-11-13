@@ -84,7 +84,6 @@ int main() {
             if (n > 0) {
                 // append all bytes recv
                 pending.insert(pending.end(), buff, buff + n);
-                std::cout << "received " << n << "bytes\n";
                 // send(client_fd, buff, n, 0);
                
                 while (pending.size() >= NewOrderSize) {
@@ -102,7 +101,9 @@ int main() {
                     Side side = newOrder->side;
 
                     //print
+                    std::cout << '\n';
                     std::cout << "==========\n";
+                    std::cout << '\n';
                     std::cout << "IN " << (side == Side::Buy ? "BUY " : "SELL ")
                               << quantity << " @ " << price << '\n';
 
@@ -114,7 +115,7 @@ int main() {
                     else {
                         std::cout << "ORDER " << submissionResult->orderId << '\n';
                         for (const auto& trade : submissionResult->trades) {
-                            std::cout << "TRADE " << trade.executionQuantity << " @ " << trade.executionPrice << '\n';
+                            std::cout << "TRADE " << trade.executionQuantity << " @ " << trade.executionPrice << "\n\n";
                         }
                     }
                     book.printOrderBook();

@@ -9,6 +9,9 @@
 
 #include "Protocol.h"
 #include <thread>
+#include <chrono>
+#include <random>
+#include <cmath>
 
 int main() {
 
@@ -40,9 +43,20 @@ int main() {
 
     std::vector<std::uint8_t> buff;
 
-    for (std::uint64_t i = 0; i < 10; ++i) {
+    //distributions
+    std::mt19937 rng{std::random_device{}()};
+    std::bernoulli_distribution sDist(0.5);
+    std::normal_distribution pDist(100.0, 3.0);
+    std::uniform_int_distribution qDist(1, 10);
+
+    for (std::uint64_t i = 0; i < 100; ++i) {
         buff.clear();
-        NewOrder newOrder{i + 1, Side::Buy, 100, 10};
+
+        Side side = sDist(rng) ? Side::Buy : Side::Sell;
+        Price price = static_cast<Price>(std::lround(pDist(rng)));
+        Quantity quantity = qDist(rng);
+        NewOrder newOrder{i + 1, side, price, quantity};
+
         encode(newOrder, buff);
         int sen = send(socket_fd, buff.data(), NewOrderSize, 0);
         if (sen == -1) {
@@ -50,7 +64,7 @@ int main() {
             return 1;
         }
         std::this_thread::sleep_for(
-            std::chrono::milliseconds(500)
+            std::chrono::milliseconds(200)
         );
     }
 
