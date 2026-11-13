@@ -101,9 +101,8 @@ int main() {
                     Side side = newOrder->side;
 
                     //print
-                    std::cout << '\n';
-                    std::cout << "==========\n";
-                    std::cout << '\n';
+                    std::cout << "\033[H\033[J";
+                    std::cout << "========== NVIDIA ==========\n\n";
                     std::cout << "IN " << (side == Side::Buy ? "BUY " : "SELL ")
                               << quantity << " @ " << price << '\n';
 
@@ -119,6 +118,7 @@ int main() {
                         }
                     }
                     book.printOrderBook();
+                    std::cout << std::flush;
                     pending.erase(pending.begin(), pending.begin() + NewOrderSize);
                 }
             }

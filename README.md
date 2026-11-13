@@ -1,6 +1,6 @@
 # MatchingEngine0
 
-A single-threaded limit order book and matching engine in C++20, with price-time priority, partial fills, cancellation, and trade reporting.
+A single-threaded limit order book and matching engine in C++20, with price-time priority, partial fills, cancellation, and trade reporting. A TCP server accepts orders over a binary protocol and shows the book live.
 
 Replacing per-price vectors with intrusive FIFO queues made the engine **136× faster** on a mixed workload with 100,000 orders at one price (0.17M → 22.8M operations/s). With many price levels the change makes little difference; [Performance](#performance) shows both cases.
 
@@ -28,11 +28,47 @@ ctest --test-dir build --output-on-failure
 | Target | What it is |
 | --- | --- |
 | `orderbook` | The engine, as a static library |
-| `matching_engine` | Small scripted demo |
-| `orderbook_tests` | GoogleTest unit tests |
+| `protocol` | Binary encode/decode for order messages, as a static library |
+| `server` | TCP server that matches incoming orders and redraws the book |
+| `client` | Sends a stream of random orders to the server |
+| `matching_engine` | Small scripted demo that prints a book |
+| `orderbook_tests` | GoogleTest unit tests for the engine and the protocol |
 | `latency_benchmark` | Per-operation latency at several queue depths, then the before/after numbers in [Performance](#performance) |
 
 Pass `-DBUILD_TESTING=OFF` to skip the tests.
+
+## Networked demo
+
+The server owns one order book. The client connects over TCP and sends 100 random limit orders, one every 200 ms. After each order the server clears the screen and prints the order, any trades it caused, and the current book.
+
+Run each in its own terminal:
+
+```sh
+./build/server
+./build/client
+```
+
+![Live order book in the server terminal](docs/demo.gif)
+
+The client picks the side 50/50, draws the price from a normal distribution around 100 (standard deviation 3, rounded to a whole number), and picks a quantity from 1 to 10. Buys and sells overlap around 100, so some orders rest and some trade.
+
+### Wire format
+
+Each order is a fixed 22-byte `NewOrder` message:
+
+| Field | Type | Bytes |
+| --- | --- | --- |
+| Message type (`1` = NewOrder) | u8 | 1 |
+| Client order ID | u64 | 8 |
+| Side | u8 | 1 |
+| Price | 32-bit integer | 4 |
+| Quantity | 64-bit integer | 8 |
+
+Integers are big-endian. Each field is written and read one byte at a time with shifts, never by copying a struct's memory, so the format doesn't depend on the compiler's padding or the machine's byte order. Decoding rejects a message of the wrong size or type; the engine rejects an invalid side, price, or quantity.
+
+### Reading the byte stream
+
+TCP delivers a stream of bytes, not messages: one `recv` can return part of an order, or several orders at once. The server appends what it receives to a buffer, decodes every complete 22-byte message in it, and keeps any leftover bytes for the next `recv`.
 
 ## Usage
 
@@ -143,21 +179,24 @@ The current engine finishes in a few seconds; the old version takes about a minu
 
 ## Testing
 
-- **Unit tests:** 33 GoogleTest cases covering validation, ID assignment, cancellation, crossing rules, partial and exact fills, maker-price execution, multi-level price priority, and FIFO on both sides. They cover 95% of lines in `OrderBook.cpp`.
+- **Unit tests:** 33 GoogleTest cases for the engine, covering validation, ID assignment, cancellation, crossing rules, partial and exact fills, maker-price execution, multi-level price priority, and FIFO on both sides. They cover 95% of lines in `OrderBook.cpp`. Another 7 cases check that `NewOrder` messages survive an encode/decode round trip and that malformed messages are rejected.
 - **Sanitizers:** both versions pass the full test suite under AddressSanitizer and UndefinedBehaviorSanitizer.
 - **CI:** GitHub Actions builds and runs all tests on every push and pull request to `main`.
 
 ## Limitations
 
 - Limit orders only: no market, IOC/FOK, modify, account ownership, or self-trade prevention.
-- Single-threaded with no networking or persistence.
-- `OrderBook` can still be copied, but a copy's internal pointers would point into the original. Don't copy it.
+- Single-threaded, with no persistence.
+- The server handles one client at a time, and only prints results: clients get no acknowledgement or fill messages back.
+- The server's stream-splitting logic is checked by hand, not by unit tests.
 - Summing many valid quantities can overflow `Quantity`.
 - An allocation failure mid-submission can leave the book inconsistent.
-- `printOrderBook()` is declared but not defined, and order-ID exhaustion isn't handled.
+- Order-ID exhaustion isn't handled.
+
+`OrderBook` can't be copied or moved: its price levels hold pointers into its own hash map, so a copy would point into the original.
 
 ## Roadmap
 
-1. Fix the limitations above: delete copy/move, check for overflow, add exception safety.
-2. Add sanitizer builds to CI.
-3. Add a networking layer: TCP order entry and a market-data feed around a single engine thread.
+1. Multiple clients that receive acks and fills, and can cancel.
+2. A UDP market-data feed and a simple market-maker bot.
+3. End-to-end latency and throughput numbers under load.
