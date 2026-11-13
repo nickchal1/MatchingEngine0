@@ -37,7 +37,10 @@ private:
     bool validateOrder(Quantity quantity, Price price, Side side) const; 
     void matchOrder(Order& order, std::vector<Trade>& trades);
 public:
-    //CANNOT COPY, MOVE, ASSIGN!!
+    OrderBook() = default;
+    OrderBook(const OrderBook& o) = delete;
+    OrderBook& operator=(const OrderBook& o) = delete;
+
     bool cancelOrder(OrderId id);
     std::optional<SubmissionResult> addOrder(Quantity quantity, Price price, Side side);
     void printOrderBook() const;

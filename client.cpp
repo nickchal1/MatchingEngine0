@@ -8,6 +8,10 @@
 #include <stdio.h>
 
 #include "Protocol.h"
+#include <thread>
+#include <chrono>
+#include <random>
+#include <cmath>
 
 int main() {
 
@@ -38,13 +42,30 @@ int main() {
     freeaddrinfo(servinfo);
 
     std::vector<std::uint8_t> buff;
-    NewOrder newOrder{5, Side::Buy, 100, 1000};
-    encode(newOrder, buff);
 
-    int sen = send(socket_fd, buff.data(), NewOrderSize, 0);
-    if (sen == -1) {
-        perror("send");
-        return 1;
+    //distributions
+    std::mt19937 rng{std::random_device{}()};
+    std::bernoulli_distribution sDist(0.5);
+    std::normal_distribution pDist(100.0, 3.0);
+    std::uniform_int_distribution qDist(1, 10);
+
+    for (std::uint64_t i = 0; i < 100; ++i) {
+        buff.clear();
+
+        Side side = sDist(rng) ? Side::Buy : Side::Sell;
+        Price price = static_cast<Price>(std::lround(pDist(rng)));
+        Quantity quantity = qDist(rng);
+        NewOrder newOrder{i + 1, side, price, quantity};
+
+        encode(newOrder, buff);
+        int sen = send(socket_fd, buff.data(), NewOrderSize, 0);
+        if (sen == -1) {
+            perror("send");
+            return 1;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(200)
+        );
     }
 
     close(socket_fd);
