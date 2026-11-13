@@ -15,7 +15,7 @@ target_compile_options(project_warnings INTERFACE
 
 # Core order-book library.
 add_library(orderbook STATIC
-    OrderBook.cpp
+    engine/OrderBook.cpp
 )
 
 target_compile_features(orderbook PUBLIC
@@ -23,10 +23,28 @@ target_compile_features(orderbook PUBLIC
 )
 
 target_include_directories(orderbook PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine
 )
 
 target_link_libraries(orderbook PRIVATE
+    project_warnings
+)
+
+# Protocol library.
+add_library(protocol STATIC
+    protocol/Protocol.cpp
+)
+
+target_compile_features(protocol PUBLIC
+    cxx_std_20
+)
+
+target_include_directories(protocol PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/protocol
+)
+
+target_link_libraries(protocol PRIVATE
+    PUBLIC orderbook
     project_warnings
 )
 
@@ -49,6 +67,25 @@ target_link_libraries(latency_benchmark PRIVATE
     project_warnings
 )
 
+add_executable(server
+    server.cpp
+)
+
+target_link_libraries(server PRIVATE
+    orderbook
+    protocol
+    project_warnings
+)
+
+add_executable(client
+    client.cpp
+)
+
+target_link_libraries(client PRIVATE
+    protocol
+    project_warnings
+)
+
 # Testing support.
 include(CTest)
 
@@ -66,10 +103,12 @@ if(BUILD_TESTING)
 
     add_executable(orderbook_tests
         tests/OrderBookTests.cpp
+        tests/ProtocolTests.cpp
     )
 
     target_link_libraries(orderbook_tests PRIVATE
         orderbook
+        protocol
         project_warnings
         GTest::gtest_main
     )

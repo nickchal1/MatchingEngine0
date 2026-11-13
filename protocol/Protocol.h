@@ -7,6 +7,7 @@
 
 
 using ClientOrderId = std::uint64_t;
+constexpr std::size_t NewOrderSize = 22;
 
 enum class MessageType : std::uint8_t
 {
@@ -26,9 +27,9 @@ enum class AckType : std::uint8_t
 struct NewOrder
 {
     ClientOrderId clientId;
-    Quantity quantity;
-    Price price;
     Side side;
+    Price price;
+    Quantity quantity;
 };
 
 struct Cancel
