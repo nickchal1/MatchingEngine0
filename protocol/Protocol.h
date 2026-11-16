@@ -48,4 +48,17 @@ struct Ack
 
 void encode(const NewOrder& newOrder, std::vector<std::uint8_t>& buffer);
 std::optional<NewOrder> decode(const std::vector<std::uint8_t>& buffer);
+
+template<typename T>
+void frameEncode(const T& msg, std::vector<std::uint8_t>& buffer) {
+
+    std::size_t start = buffer.size();
+    buffer.push_back(0);
+
+    encode(msg, buffer);
+    
+    std::size_t size = buffer.size() - start - 1;
+    buffer[start] = static_cast<std::uint8_t>(size);
+}
+
 #endif

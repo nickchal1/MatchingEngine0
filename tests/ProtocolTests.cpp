@@ -76,4 +76,25 @@ TEST(ProtocolDecode, RejectWrongType)
     ASSERT_FALSE(decoded);
 }
 
+TEST(ProtocolFrame, orderSizeCorrect)
+{
+    NewOrder order{.clientId = 5, .side = Side::Buy, .price = 100, .quantity = 200};
+    std::vector<std::uint8_t> buff;
+    frameEncode(order, buff);
+    EXPECT_EQ(buff.size(), NewOrderSize + 1);
+    ASSERT_EQ(buff[0], NewOrderSize);
+}
 
+TEST(ProtocolFrame, encodingSame)
+{
+    NewOrder order{.clientId = 5, .side = Side::Buy, .price = 100, .quantity = 200};
+    std::vector<std::uint8_t> buff;
+    frameEncode(order, buff);
+    
+    std::vector<std::uint8_t> nonFramedBuff;
+    encode(order, nonFramedBuff);
+
+    //remove length byte
+    buff.erase(buff.begin());
+    EXPECT_EQ(buff, nonFramedBuff);
+}
